@@ -615,7 +615,7 @@ class HA_db_mixin(object):
                                              port, modified_port_data,
                                              redundancy_router_ids=None,
                                              ha_settings_db=None):
-        """ To be called when the router interfaces are updated,
+        """To be called when the router interfaces are updated,
         like in the case of change in port admin_state_up status
         """
         router_id = router['id']

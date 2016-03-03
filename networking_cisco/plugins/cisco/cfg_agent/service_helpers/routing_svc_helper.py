@@ -14,6 +14,7 @@
 
 import collections
 import eventlet
+from ncclient.transport import errors as ncc_errors
 import netaddr
 import pprint as pp
 
@@ -36,7 +37,6 @@ from networking_cisco.plugins.cisco.common import (cisco_constants as
                                                    c_constants)
 from networking_cisco.plugins.cisco.extensions import ha
 from networking_cisco.plugins.cisco.extensions import routerrole
-from ncclient.transport import errors as ncc_errors
 
 LOG = logging.getLogger(__name__)
 

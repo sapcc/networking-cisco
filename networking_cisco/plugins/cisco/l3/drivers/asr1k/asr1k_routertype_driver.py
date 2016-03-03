@@ -13,8 +13,8 @@
 #    under the License.
 
 from oslo_config import cfg
-from sqlalchemy.orm import exc
 from oslo_utils import uuidutils
+from sqlalchemy.orm import exc
 
 from neutron.common import constants as l3_constants
 from neutron.extensions import l3

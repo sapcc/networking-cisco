@@ -13,10 +13,9 @@
 #    under the License.
 
 import netaddr
-
+import pprint as pp
 import re
 import six
-import pprint as pp
 import xml.etree.ElementTree as ET
 
 from oslo_config import cfg
