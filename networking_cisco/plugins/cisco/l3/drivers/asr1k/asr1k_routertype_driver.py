@@ -362,11 +362,15 @@ class ASR1kL3RouterDriver(drivers.L3RouterBaseDriver):
                    HOSTING_DEVICE_ATTR: [tenant_router[HOSTING_DEVICE_ATTR]]}
         global_routers = self._l3_plugin.get_routers(context,
                                                      filters=filters)
+        hd_to_gr_dict = {r[HOSTING_DEVICE_ATTR]: r for r in global_routers}
         if global_routers:
             global_router_id = global_routers[0]['id']
+
+
             ext_net_id = tenant_router[l3.EXTERNAL_GW_INFO]['network_id']
             routertype_id = tenant_router[routertype.TYPE_ATTR]
             hd_id = tenant_router[HOSTING_DEVICE_ATTR]
+            global_router = hd_to_gr_dict.get(hd_id)
             port_deleted = self._conditionally_remove_auxiliary_gateway_port(
                 context, global_router_id, ext_net_id, routertype_id, hd_id,
                 update_operation)
@@ -383,9 +387,18 @@ class ASR1kL3RouterDriver(drivers.L3RouterBaseDriver):
             if num_aux_gw_ports == 0:
                 # global router not needed any more so we delete it
                 self._delete_global_router(context, global_router_id)
+                do_notify = False
+            else:
+                do_notify = True
             # process logical global router to remove its port
             self._conditionally_remove_auxiliary_gateway_vip_port(
                 context, ext_net_id, routertype_id)
+            self._l3_plugin.add_type_and_hosting_device_info(context,
+                                                             global_router)
+            if do_notify is True:
+                for ni in self._l3_plugin.get_notifiers(context, [global_router]):
+                    if ni['notifier']:
+                        ni['notifier'].routers_updated(context, ni['routers'])
 
     def _conditionally_remove_auxiliary_gateway_port(
             self, context, router_id, ext_net_id, routertype_id,
