@@ -18,7 +18,6 @@ import six
 
 from networking_cisco._i18n import _
 
-from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
 from neutron.common import exceptions as nexception
@@ -202,7 +201,7 @@ RESOURCE_ATTRIBUTE_MAP = {
 }
 
 
-class Ciscohostingdevicemanager(extensions.ExtensionDescriptor):
+class Ciscohostingdevicemanager(bc.extensions.ExtensionDescriptor):
     """Hosting device and template extension."""
 
     @classmethod

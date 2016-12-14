@@ -90,7 +90,7 @@ RESOURCE_ATTRIBUTE_MAP = {
 }
 
 
-class Network_profile(extensions.ExtensionDescriptor):
+class Network_profile(bc.extensions.ExtensionDescriptor):
 
     @classmethod
     def get_name(cls):

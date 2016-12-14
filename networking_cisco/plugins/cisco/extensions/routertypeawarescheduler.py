@@ -150,7 +150,7 @@ EXTENDED_ATTRIBUTES_2_0 = {
 }
 
 
-class Routertypeawarescheduler(extensions.ExtensionDescriptor):
+class Routertypeawarescheduler(bc.extensions.ExtensionDescriptor):
     """Extension class supporting l3 agent scheduler."""
     @classmethod
     def get_name(cls):

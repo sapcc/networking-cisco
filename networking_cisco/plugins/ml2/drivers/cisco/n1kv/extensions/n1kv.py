@@ -16,9 +16,7 @@
 
 from networking_cisco._i18n import _
 
-from neutron.api import extensions
 from neutron.api.v2 import attributes
-
 from networking_cisco.plugins.ml2.drivers.cisco.n1kv import constants
 
 
@@ -36,7 +34,7 @@ EXTENDED_ATTRIBUTES_2_0 = {
         'is_visible': True}}}
 
 
-class N1kv(extensions.ExtensionDescriptor):
+class N1kv(bc.extensions.ExtensionDescriptor):
 
     @classmethod
     def get_name(cls):

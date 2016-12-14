@@ -14,7 +14,6 @@
 
 from networking_cisco._i18n import _
 
-from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.common import exceptions as nexception
 
@@ -105,7 +104,7 @@ EXTENDED_ATTRIBUTES_2_0 = {
 }
 
 
-class Ha(extensions.ExtensionDescriptor):
+class Ha(bc.extensions.ExtensionDescriptor):
     """Extension class to support HA by VRRP, HSRP and GLBP.
 
     This class is used by Neutron's extension framework to support
