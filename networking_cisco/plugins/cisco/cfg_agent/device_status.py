@@ -200,9 +200,14 @@ class DeviceStatus(object):
             return False
 
         # Modifying the 'created_at' to a date time object if it is not
+
+        # *********************
+        # Patch with %.f to avoid exceptions
+        # *********************
+
         if not isinstance(hd['created_at'], datetime.datetime):
             hd['created_at'] = datetime.datetime.strptime(hd['created_at'],
-                                                          '%Y-%m-%d %H:%M:%S')
+                                                          '%Y-%m-%d %H:%M:%S.%f')
 
         if _is_pingable(hd_mgmt_ip):
             LOG.debug("Hosting device: %(hd_id)s@%(ip)s is reachable.",
