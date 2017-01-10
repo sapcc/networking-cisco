@@ -13,7 +13,7 @@
 #    under the License.
 
 from neutron.api.v2 import attributes as attr
-
+from networking_cisco import backwards_compatibility as bc
 
 ROUTERHOSTINGDEVICE = 'routerhost'
 ROUTERHOSTINGDEVICE_ALIAS = ROUTERHOSTINGDEVICE

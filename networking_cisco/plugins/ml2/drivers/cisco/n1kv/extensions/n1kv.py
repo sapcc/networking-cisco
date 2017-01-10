@@ -15,6 +15,7 @@
 
 
 from networking_cisco._i18n import _
+from networking_cisco import backwards_compatibility as bc
 
 from neutron.api.v2 import attributes
 from networking_cisco.plugins.ml2.drivers.cisco.n1kv import constants

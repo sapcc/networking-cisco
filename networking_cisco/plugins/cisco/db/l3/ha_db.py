@@ -34,6 +34,7 @@ from neutron.db import l3_db
 from neutron.db import models_v2
 from neutron.extensions import l3
 
+from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.common import cisco_constants
 from networking_cisco.plugins.cisco.common import utils as cisco_utils
 from networking_cisco.plugins.cisco.extensions import ha

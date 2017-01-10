@@ -16,7 +16,7 @@ import abc
 
 import six
 
-from neutron.api import extensions
+from networking_cisco import backwards_compatibility as bc
 from neutron.api.v2 import attributes
 from neutron.api.v2 import base
 from neutron import manager
@@ -127,7 +127,7 @@ class Network_profile(bc.extensions.ExtensionDescriptor):
                 resource_name,
                 plugin,
                 RESOURCE_ATTRIBUTE_MAP.get(collection_name))
-            ex = extensions.ResourceExtension(collection_name,
+            ex = bc.extensions.ResourceExtension(collection_name,
                                               controller)
             exts.append(ex)
         return exts

@@ -18,8 +18,8 @@ from oslo_log import log as logging
 import webob.exc
 
 from networking_cisco._i18n import _, _LE
+from networking_cisco import backwards_compatibility as bc
 
-from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
 from neutron.api.v2 import resource
@@ -181,13 +181,13 @@ class Routertypeawarescheduler(bc.extensions.ExtensionDescriptor):
                       collection_name=ciscohostingdevicemanager.DEVICES)
         controller = resource.Resource(
             RouterHostingDeviceSchedulerController(), base.FAULT_MAP)
-        exts.append(extensions.ResourceExtension(
+        exts.append(bc.extensions.ResourceExtension(
             DEVICE_L3_ROUTERS, controller, parent, path_prefix="/dev_mgr"))
         parent = dict(member_name="router",
                       collection_name=l3.ROUTERS)
         controller = resource.Resource(
             HostingDevicesHostingRouterController(), base.FAULT_MAP)
-        exts.append(extensions.ResourceExtension(L3_ROUTER_DEVICES, controller,
+        exts.append(bc.extensions.ResourceExtension(L3_ROUTER_DEVICES, controller,
                                                  parent))
         return exts
 

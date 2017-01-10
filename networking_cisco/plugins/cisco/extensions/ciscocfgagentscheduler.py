@@ -19,7 +19,7 @@ import webob.exc
 
 from networking_cisco._i18n import _, _LE
 
-from neutron.api import extensions
+from networking_cisco import backwards_compatibility as bc
 from neutron.api.v2 import base
 from neutron.api.v2 import resource
 from neutron.common import exceptions
@@ -157,13 +157,13 @@ class Ciscocfgagentscheduler(bc.extensions.ExtensionDescriptor):
                       collection_name="agents")
         controller = resource.Resource(HostingDeviceSchedulerController(),
                                        base.FAULT_MAP)
-        exts.append(extensions.ResourceExtension(CFG_AGENT_HOSTING_DEVICES,
+        exts.append(bc.extensions.ResourceExtension(CFG_AGENT_HOSTING_DEVICES,
                                                  controller, parent))
         parent = dict(member_name=ciscohostingdevicemanager.DEVICE,
                       collection_name=ciscohostingdevicemanager.DEVICES)
         controller = resource.Resource(
             CfgAgentsHandlingHostingDeviceController(), base.FAULT_MAP)
-        exts.append(extensions.ResourceExtension(HOSTING_DEVICE_CFG_AGENTS,
+        exts.append(bc.extensions.ResourceExtension(HOSTING_DEVICE_CFG_AGENTS,
                                                  controller, parent,
                                                  PATH_PREFIX))
         return exts

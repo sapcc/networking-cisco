@@ -13,6 +13,7 @@
 #    under the License.
 
 from networking_cisco._i18n import _
+from networking_cisco import backwards_compatibility as bc
 
 from neutron.api.v2 import attributes as attr
 from neutron.common import exceptions as nexception
