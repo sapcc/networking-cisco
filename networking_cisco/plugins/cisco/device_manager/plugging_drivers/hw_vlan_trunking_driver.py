@@ -70,19 +70,35 @@ class HwVLANTrunkingPlugDriver(plug.PluginSidePluggingDriver):
         hosting_info['physical_interface'] = self._get_interface_info(
             hosting_device['id'], port_db.network_id, is_external)
 
+
     def allocate_hosting_port(self, context, router_id, port_db, network_type,
                               hosting_device_id):
-        # For VLAN core plugin provides VLAN tag
-        tags = self._core_plugin.get_networks(
-            context, {'id': [port_db['network_id']]}, [pr_net.SEGMENTATION_ID])
-        allocated_vlan = (None if tags == []
-                          else tags[0].get(pr_net.SEGMENTATION_ID))
-        if allocated_vlan is None:
-            # Database must have been messed up if this happens ...
-            LOG.debug('hw_vlan_trunking_driver: Could not allocate VLAN')
-            return
-        return {'allocated_port_id': port_db.id,
-                'allocated_vlan': allocated_vlan}
+
+        ##################################
+        #
+        # Hack for multi segment support
+        #
+        ##################################
+
+        port_context = self._core_plugin.get_bound_port_context(context,port_db['id'])
+
+        segment =  port_context.bottom_bound_segment
+        allocated_vlan=None
+        if segment:
+            allocated_vlan =  segment["segmentation_id"]
+
+        # tags = self._core_plugin.get_networks(
+        #    context, {'id': [port_db['network_id']]}, [pr_net.SEGMENTATION_ID])
+        # allocated_vlan = (None if tags == []
+        #                   else tags[0].get(pr_net.SEGMENTATION_ID))
+
+        if allocated_vlan is not None:
+            return {'allocated_port_id': port_db.id,
+                    'allocated_vlan': allocated_vlan}
+
+        # Database must have been messed up if this happens ...
+        LOG.debug('hw_vlan_trunking_driver: Could not allocate VLAN')
+        return
 
     @classmethod
     def _get_interface_info(cls, device_id, network_id, external=False):
