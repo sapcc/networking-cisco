@@ -66,10 +66,22 @@ def upgrade():
                               referent_table='cisco_router_types',
                               local_cols=['router_type_id'],
                               remote_cols=['id'])
-        op.drop_constraint('cisco_router_mappings_ibfk_2',
-                           'cisco_router_mappings', type_='foreignkey')
-        op.drop_constraint('cisco_router_mappings_ibfk_2',
+
+
+
+        # ****** This foreign key is never present ********
+
+        #op.drop_constraint('cisco_router_mappings_ibfk_2',
+        #                   'cisco_router_mappings', type_='foreignkey')
+
+
+        op.drop_constraint('cisco_router_mappings_pkey',
                            'cisco_router_mappings', type_='primary')
+
+        # ****** End of Hack *****
+
+
+
         op.create_foreign_key('cisco_router_mappings_ibfk_2',
                               source_table='cisco_router_mappings',
                               referent_table='routers',
