@@ -113,8 +113,8 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             return cls._keystone_session
         else:
             auth_url = cfg.CONF.keystone_authtoken.auth_url
-            if auth_url.rsplit('/', 1)[-1] != 'v3':
-                auth_url += '/v3'
+            #if auth_url.rsplit('/', 1)[-1] != 'v3':
+            #    auth_url += '/v3'
             # user = cfg.CONF.keystone_authtoken.admin_user
             # pw = cfg.CONF.keystone_authtoken.admin_password
             # project_name = cfg.CONF.keystone_authtoken.admin_tenant_name
@@ -122,23 +122,24 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             user = cfg.CONF.keystone_authtoken.username
             pw = cfg.CONF.keystone_authtoken.password
             project_name = cfg.CONF.general.l3_admin_tenant
-            user_domain_id = (cfg.CONF.keystone_authtoken.user_domain_id or
+            user_domain_name = (cfg.CONF.keystone_authtoken.user_domain_name or
                               'default')
-            project_domain_id = (
-                cfg.CONF.keystone_authtoken.project_domain_id or 'default')
+            project_domain_name = (cfg.CONF.keystone_authtoken.project_domain_name
+                                 or 'default')
             auth = v3.Password(auth_url=auth_url,
                                username=user,
                                password=pw,
                                project_name=project_name,
-                               user_domain_id=user_domain_id,
-                               project_domain_id=project_domain_id)
-            cls._keystone_session = session.Session(auth=auth)
+                               user_domain_name=user_domain_name,
+                               project_domain_name=project_domain_name)
+            cls._keystone_session = session.Session(auth=auth, verify=False)
+
         return cls._keystone_session
 
     @property
     def svc_vm_mgr(self):
         if self._svc_vm_mgr_obj is None:
-            if hasattr(cfg.CONF.keystone_authtoken, 'project_domain_id'):
+            if hasattr(cfg.CONF.keystone_authtoken, 'project_domain_name'):
                 self._svc_vm_mgr_obj = service_vm_lib.ServiceVMManager(
                     is_auth_v3=True,
                     keystone_session=self._keystone_auth_session())
@@ -177,24 +178,40 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     @classmethod
     def _get_tenant_id_using_keystone_v3(cls):
         keystone = client.Client(session=cls._keystone_auth_session())
-        try:
-            tenant = keystone.projects.find(
-                name=cfg.CONF.general.l3_admin_tenant,
-                domain_id = (cfg.CONF.keystone_authtoken.project_domain_id
-                             or 'default'))
-        except k_exceptions.NotFound:
-            LOG.error('No tenant with a name or ID of %s exists.',
-                      cfg.CONF.general.l3_admin_tenant)
-        except k_exceptions.NoUniqueMatch:
-            LOG.error('Multiple tenants matches found for %s',
-                      cfg.CONF.general.l3_admin_tenant)
-        return tenant.id
+        #try:
+
+        ##################################
+        #
+        # Patched to use auth.projects for
+        # V3 policy compatibility
+        #
+        # Other changes to use _domain_name
+        # instead of _domain_id
+        #
+        ##################################
+
+        available_projects = keystone.auth.projects()
+
+        for project in available_projects:
+            if project.name == cfg.CONF.general.l3_admin_tenant:
+                return project.id
+
+        #    tenant = keystone.projects.find(
+        #        name=cfg.CONF.general.l3_admin_tenant)
+        # except k_exceptions.NotFound:
+        #   LOG.error(_LE('No tenant with a name or ID of %s exists.'),
+        #              cfg.CONF.general.l3_admin_tenant)
+        #except k_exceptions.NoUniqueMatch:
+        #    LOG.error(_LE('Multiple tenants matches found for %s'),
+        #              cfg.CONF.general.l3_admin_tenant)
+
+        return None
 
     @classmethod
     def l3_tenant_id(cls):
         """Returns id of tenant owning hosting device resources."""
         if cls._l3_tenant_uuid is None:
-            if hasattr(cfg.CONF.keystone_authtoken, 'project_domain_id'):
+            if hasattr(cfg.CONF.keystone_authtoken, 'project_domain_name'):
                 # TODO(sridar): hack for now to determing if keystone v3
                 # API is to be used.
                 cls._l3_tenant_uuid = cls._get_tenant_id_using_keystone_v3()
