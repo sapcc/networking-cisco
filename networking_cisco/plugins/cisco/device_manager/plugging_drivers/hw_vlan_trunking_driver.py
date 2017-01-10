@@ -79,11 +79,25 @@ class HwVLANTrunkingPlugDriver(plug.PluginSidePluggingDriver):
     def allocate_hosting_port(self, context, router_id, port_db, network_type,
                               hosting_device_id):
         # For VLAN core plugin provides VLAN tag
-        tags = self._core_plugin.get_networks(
-            context, {'id': [port_db['network_id']]},
-            [bc.provider_net.SEGMENTATION_ID])
-        allocated_vlan = (None if tags == []
-                          else tags[0].get(bc.provider_net.SEGMENTATION_ID))
+        # tags = self._core_plugin.get_networks(
+        #     context, {'id': [port_db['network_id']]},
+        #     [bc.provider_net.SEGMENTATION_ID])
+        # allocated_vlan = (None if tags == []
+        #                   else tags[0].get(bc.provider_net.SEGMENTATION_ID))
+
+        ##################################
+        #
+        # Hack for multi segment support
+        #
+        ##################################
+
+        port_context = self._core_plugin.get_bound_port_context(context, port_db['id'])
+
+        segment =  port_context.bottom_bound_segment
+        allocated_vlan=None
+        if segment:
+            allocated_vlan =  segment["segmentation_id"]
+
         if allocated_vlan is None:
             # Database must have been messed up if this happens ...
             LOG.debug('hw_vlan_trunking_driver: Could not allocate VLAN')
