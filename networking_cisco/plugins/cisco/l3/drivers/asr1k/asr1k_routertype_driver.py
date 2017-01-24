@@ -23,7 +23,7 @@ from neutron.db import models_v2
 from neutron_lib import constants as l3_constants
 from neutron_lib import exceptions as n_exc
 
-from networking_cisco._i18n import _
+from networking_cisco._i18n import _, _LW
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.backwards_compatibility import l3_const
 from networking_cisco.backwards_compatibility import l3_exceptions
