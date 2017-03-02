@@ -77,11 +77,7 @@ def upgrade():
                               referent_table='cisco_hosting_devices',
                               local_cols=['hosting_device_id'],
                               remote_cols=['id'],
-                              ondelete='SET NULL'),
-                              referent_table='cisco_router_types',
-                              local_cols=['router_type_id'],
-                              remote_cols=['id'])
-
+                              ondelete='SET NULL')
 
 
         # ****** This foreign key is never present ********
