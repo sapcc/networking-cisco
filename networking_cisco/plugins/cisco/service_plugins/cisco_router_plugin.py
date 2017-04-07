@@ -30,7 +30,7 @@ from networking_cisco.plugins.cisco.db.l3 import l3_router_appliance_db
 from networking_cisco.plugins.cisco.db.l3 import routertype_db
 from networking_cisco.plugins.cisco.db.scheduler import (
     l3_routertype_aware_schedulers_db as router_sch_db)
-from networking_cisco.plugins.cisco.db import dns_db
+from neutron.db import dns_db
 from networking_cisco.plugins.cisco.extensions import ha
 from networking_cisco.plugins.cisco.extensions import routerhostingdevice
 from networking_cisco.plugins.cisco.extensions import routerrole
