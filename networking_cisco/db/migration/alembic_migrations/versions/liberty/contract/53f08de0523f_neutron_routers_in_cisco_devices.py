@@ -86,8 +86,8 @@ def upgrade():
         #                   'cisco_router_mappings', type_='foreignkey')
 
 
-        op.drop_constraint('cisco_router_mappings_pkey',
-                           'cisco_router_mappings', type_='primary')
+        # op.drop_constraint('cisco_router_mappings_pkey',
+        #                   'cisco_router_mappings', type_='primary')
 
         # ****** End of Hack *****
 
