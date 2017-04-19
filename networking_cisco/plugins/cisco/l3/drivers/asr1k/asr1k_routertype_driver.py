@@ -32,6 +32,8 @@ from networking_cisco.plugins.cisco.db.l3 import ha_db
 from networking_cisco.plugins.cisco.db.l3 import l3_models
 from networking_cisco.plugins.cisco.db.l3.l3_router_appliance_db import (
     L3RouterApplianceDBMixin)
+from networking_cisco.plugins.cisco.db.l3.l3_router_appliance_db import (
+    RouterBindingInfoError)
 from networking_cisco.plugins.cisco.extensions import routerhostingdevice
 from networking_cisco.plugins.cisco.extensions import routerrole
 from networking_cisco.plugins.cisco.extensions import routertype

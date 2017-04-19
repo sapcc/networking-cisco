@@ -487,3 +487,17 @@ EMPTY_SNIPPET = """
         </cli-config-data>
 </config>
 """
+
+# ===================================================
+# Clear all NAT translations for a VRF
+# Syntax: clear ip nat translation vrf <vrf_name> forced
+# eg:
+# $clear ip nat translation vrf nrouter-e7d4y5 forced
+# ===================================================
+CLEAR_IP_NAT_TRANSLATIONS_VRF = """
+<config>
+        <cli-config-data>
+        <cmd>clear ip nat translation vrf %s forced</cmd>
+        </cli-config-data>
+</config>
+"""

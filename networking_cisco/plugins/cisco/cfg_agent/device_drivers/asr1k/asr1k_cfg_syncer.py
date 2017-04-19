@@ -18,6 +18,7 @@ import re
 import six
 import xml.etree.ElementTree as ET
 
+from ncclient.operations.rpc import RPCError
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -155,6 +156,9 @@ INTF_V6_ADDR_REGEX = "\s*ipv6 address ([0-9A-Fa-f:]+)\/(\d+)"
 
 XML_FREEFORM_SNIPPET = "<config><cli-config-data>%s</cli-config-data></config>"
 XML_CMD_TAG = "<cmd>%s</cmd>"
+
+MAX_RETRY_ATTEMPTS = 3
+MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS = MAX_RETRY_ATTEMPTS
 
 
 def is_port_v6(port):
@@ -796,7 +800,29 @@ class ConfigSyncer(object):
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Delete NAT overload: %(del_cmd)s" %
                          {'del_cmd': del_cmd})
-                conn.edit_config(target='running', config=confstr)
+                vrf_name = re.match('.* vrf (.*) overload', nat_cfg).group(1)
+                wipestr = asr_snippets.CLEAR_IP_NAT_TRANSLATIONS_VRF % vrf_name
+                for attempts in range(MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS):
+                    try:
+                        conn.edit_config(target='running', config=confstr)
+                        break
+                    except RPCError as e:
+                        LOG.info(_LI('e.type = %(etype)s e.tag = %(etag)s'),
+                                 {'etype': e.type, 'etag': e.tag})
+                        if (attempts ==
+                                MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS - 1):
+                            LOG.error(_LE("Unable to remove NAT pool "
+                                          "overload. Please try to "
+                                          "manually remove it by doing:"))
+                            LOG.error(_LE("1. Clear IP NAT translations:\n"
+                                          "     clear ip nat translation vrf "
+                                          "%(vrf_name)s\n"
+                                          "2. Remove the NAT pool:\n"
+                                          "     %(del_cmd)s"),
+                                      {'vrf_name': vrf_name,
+                                       'del_cmd': del_cmd})
+                        else:
+                            conn.edit_config(target='running', config=wipestr)
 
         LOG.debug("delete_nat_list = %s " % (pp.pformat(delete_nat_list)))
         return delete_nat_list
