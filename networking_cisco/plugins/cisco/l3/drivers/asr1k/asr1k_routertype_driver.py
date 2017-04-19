@@ -228,7 +228,7 @@ class ASR1kL3RouterDriver(drivers.L3RouterBaseDriver):
             invert_filters = {'gw_port_id': [None]}
             num_rtrs = self._l3_plugin.get_routers_count_extended(
                 context, filters=filters, invert_filters=invert_filters)
-            LOG.debug("Global router %(name)s[%(id)s] with hosting_device "
+            LOG.debug("Global router %(name)s[id: %(id)s] with hosting_device "
                       "%(hd)s has %(num)d routers with gw_port set on that "
                       "device",
                       {'name': gr['name'], 'id': gr['id'],

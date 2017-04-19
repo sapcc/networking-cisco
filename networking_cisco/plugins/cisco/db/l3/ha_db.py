@@ -970,6 +970,15 @@ class HA_db_mixin(object):
             return
         return r_ha_s
 
+    def get_ha_group(self, context, id):
+        query = context.session.query(RouterHAGroup)
+        query = query.filter(RouterHAGroup.id == id)
+        try:
+            r_ha_g = query.one()
+        except (exc.NoResultFound, exc.MultipleResultsFound):
+            return
+        return r_ha_ggit
+
     def _get_ha_group_by_ha_port_id(self, context, port_id):
         query = context.session.query(RouterHAGroup)
         query = query.filter(RouterHAGroup.ha_port_id == port_id)

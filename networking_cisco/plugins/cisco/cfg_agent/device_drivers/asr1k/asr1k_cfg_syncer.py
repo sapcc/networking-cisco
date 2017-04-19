@@ -22,6 +22,7 @@ from ncclient.operations.rpc import RPCError
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from networking_cisco._i18n import _LE, _LI, _
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco import alerts
 from networking_cisco import prometheus

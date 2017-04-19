@@ -19,7 +19,7 @@ import re
 
 from oslo_config import cfg
 
-from networking_cisco._i18n import _
+from networking_cisco._i18n import _, _LE, _LI
 from networking_cisco import prometheus
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.cfg_agent import cfg_exceptions as cfg_exc
@@ -677,8 +677,8 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                 self._edit_running_config(conf_str, 'CREATE_NAT_POOL')
         #except cfg_exc.IOSXEConfigException as cse:
         except Exception as cse:
-            LOG.error("Temporary disable NAT_POOL exception handling: %s",
-                      cse)
+            LOG.error(_LE("Temporary disable NAT_POOL exception handling: "
+                          "%s"), cse)
 
     def _add_default_route(self, ri, ext_gw_port):
         if self._fullsync and (ri.router_id in
@@ -967,14 +967,35 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
         self._edit_running_config(conf_str, 'CLEAR_DYN_NAT_TRANS')
 
     def _remove_dyn_nat_rule(self, acl_no, outer_itfc_name, vrf_name):
-        try:
-            pool_name = "%s_nat_pool" % (vrf_name)
-            confstr = (asr1k_snippets.REMOVE_DYN_SRC_TRL_POOL %
-                (acl_no, pool_name, vrf_name))
-            self._edit_running_config(confstr, 'REMOVE_DYN_SRC_TRL_POOL')
-        except cfg_exc.IOSXEConfigException as cse:
-            LOG.error("temporary disable REMOVE_DYN_SRC_TRL_POOL"
-                      " exception handling: %s", (cse))
+        wipestr = asr1k_snippets.CLEAR_IP_NAT_TRANSLATIONS_VRF % vrf_name
+        for attempts in range(MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS):
+            try:
+                pool_name = "%s_nat_pool" % (vrf_name)
+                confstr = (asr1k_snippets.REMOVE_DYN_SRC_TRL_POOL %
+                           (acl_no, pool_name, vrf_name))
+                self._edit_running_config(confstr, 'REMOVE_DYN_SRC_TRL_POOL')
+                break
+            except cfg_exc.CSR1kvConfigException as cse:
+                LOG.error(_LE("temporary disable REMOVE_DYN_SRC_TRL_POOL"
+                              " exception handling: %s"), cse)
+                if attempts == MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS - 1:
+                    LOG.error(_LE("Unable to remove NAT pool "
+                                  "overload. Please try to "
+                                  "manually remove it by doing:"))
+                    LOG.error(_LE("1. Clear IP NAT translations:\n"
+                                  "     clear ip nat translation vrf "
+                                  "%(vrf_name)s\n"
+                                  "2. Remove the NAT pool:\n"
+                                  "     %(del_cmd)s"
+                                  "3. Remove the associated ACL:\n"
+                                  "     %(del_acl)s"),
+                              {'vrf_name': vrf_name,
+                               'del_cmd': confstr,
+                               'del_acl': snippets.REMOVE_ACL % acl_no})
+                    return
+                else:
+                    self._edit_running_config(wipestr,
+                                              'CLEAR_IP_NAT_TRANSLATIONS_VRF')
 
         conf_str = snippets.REMOVE_ACL % acl_no
         self._edit_running_config(conf_str, 'REMOVE_ACL')
