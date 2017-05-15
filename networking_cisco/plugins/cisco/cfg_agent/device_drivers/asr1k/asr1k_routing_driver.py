@@ -14,6 +14,7 @@
 
 import logging
 import netaddr
+import time
 
 from oslo_config import cfg
 
@@ -930,9 +931,15 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
 
         # remove dynamic nat rules and acls
         vrf_name = self._get_vrf_name(ri)
+        self._remove_dyn_nat_translations_asr(vrf_name)
+        time.sleep(0.5)
         ext_itfc_name = self._get_interface_name_from_hosting_port(ext_port)
         for acl in acls:
             self._remove_dyn_nat_rule(acl, ext_itfc_name, vrf_name)
+
+    def _remove_dyn_nat_translations_asr(self, vrf_name):
+        conf_str = asr1k_snippets.CLEAR_DYN_NAT_TRANS % vrf_name
+        self._edit_running_config(conf_str, 'CLEAR_DYN_NAT_TRANS')
 
     def _remove_dyn_nat_rule(self, acl_no, outer_itfc_name, vrf_name):
         try:
