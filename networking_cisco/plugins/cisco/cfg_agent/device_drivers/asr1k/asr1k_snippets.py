@@ -419,6 +419,19 @@ SET_DYN_SRC_TRL_POOL = """
 </config>
 """
 
+# =============================================================================
+# Clear dynamic nat translations. This is used to clear any nat bindings before
+# we can turn off NAT on an interface
+# Syntax: clear ip nat translation [forced]
+# =============================================================================
+CLEAR_DYN_NAT_TRANS = """
+<config>
+        <cli-config-data>
+            <cmd>do clear ip nat translation vrf %s forced</cmd>
+        </cli-config-data>
+</config>
+"""
+
 # ===========================================================================
 # Remove Dynamic source translation with NAT pool
 # Syntax: no ip nat inside source list <acl_no> pool <pool_name>
