@@ -134,7 +134,7 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
 
     def set_binding_host_id(self, mac, binding_host_id):
         LOG.debug("Bound {} to {}".format(mac, binding_host_id))
-        self._ports[mac].binding_host_id = binding_host_id
+        self._ports[mac.lower()].binding_host_id = binding_host_id
 
     def get_agent_configurations(self):
         # The very least, we have to return the physical networks as keys
@@ -156,7 +156,7 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
 
     def get_binding_host_id(self, device):
         if device in self._ports:
-            return self._ports[device].binding_host_id
+            return self._ports[device.lower()].binding_host_id
 
     def get_rpc_consumers(self):
         consumers = [[topics.PORT, topics.UPDATE],
@@ -164,16 +164,16 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
         return consumers
 
     def plug_interface(self, network_id, network_segment, device, device_owner):
-        LOG.debug("Start")
+        LOG.debug("Start {}".format(device))
         eth_if_class_id = self.ucsmsdk.VnicEtherIf.ClassId()
         eth_class_id = self.ucsmsdk.VnicEther.ClassId()
         vlan_id = network_segment.segmentation_id
-        ucsm_ip = self._ports.get(device, _PortInfo()).ucsm_ip
-        if ucsm_ip:
+        info = self._ports.get(device.lower())
+        if not info or not info.ucsm_ip:
             LOG.debug("Unknown device {}".format(device))
             return False
 
-        with self.ucsm_connect_disconnect(ucsm_ip) as handle:
+        with self.ucsm_connect_disconnect(info.ucsm_ip) as handle:
             vlans = self._get_vlan(handle, vlan_id)
             if len(vlans) != 1:
                 LOG.error("Cannot uniquely identify vlan {} for {}".format(vlan_id, device))
@@ -239,8 +239,7 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
         if not self.ucsmsdk:
             self.ucsmsdk = self._import_ucsmsdk()
 
-        username, password = self.ucsm_conf.get_credentials_for_ucsm_ip(
-            ucsm_ip)
+        username, password = self.ucsm_conf.get_credentials_for_ucsm_ip(ucsm_ip)
         if not username:
             LOG.error(_LE('UCS Manager network driver failed to get login '
                           'credentials for UCSM %s'), ucsm_ip)
@@ -286,7 +285,7 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
             with self.ucsm_connect_disconnect(ucsm_ip) as handle:
                 for vnic_path in vnic_paths:
                     for mac in self._get_devices(handle, vnic_path):
-                        self._ports[mac].ucsm_ip = ucsm_ip
+                        self._ports[mac.lower()].ucsm_ip = ucsm_ip
 
     def _get_devices(self, handle, vnic_path):
         vnic_id = self.ucsmsdk.VnicEther.ClassId()
@@ -295,10 +294,12 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
             LOG.debug("Could not resolve vnics with path {}".format(vnic_path))
         else:
             for child in crc.OutConfigs.GetChild():
-                yield child.Addr.lower()
+                if child.Addr != 'derived':
+                    yield child.Addr
 
 class AgentLoop(ca.CommonAgentLoop):
     def _get_devices_details_list(self, devices):
+        LOG.debug("Looking up {}".format(devices))
         devices_by_host = defaultdict(list)
         for device in devices:
             binding_host_id = self.mgr.get_binding_host_id(device)
@@ -309,6 +310,7 @@ class AgentLoop(ca.CommonAgentLoop):
             device_details.extend(
                 self.plugin_rpc.get_devices_details_list(self.context, devices, self.agent_id, host=host)
             )
+        LOG.debug("Found {}".format(device_details))
         return device_details
 
 def main():
