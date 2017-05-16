@@ -527,7 +527,7 @@ class ASR1kRoutingDriver(base.BaseTestCase,
         self.driver.disable_internal_network_NAT(self.ri, self.int_port,
                                                  self.ext_gw_port)
 
-        self._assert_number_of_edit_run_cfg_calls(3)
+        self._assert_number_of_edit_run_cfg_calls(4)
 
         acl_name = '%(acl_prefix)s_%(vlan)s_%(port)s' % {
                    'acl_prefix': 'neutron_acl',
@@ -552,7 +552,7 @@ class ASR1kRoutingDriver(base.BaseTestCase,
         self.driver.disable_internal_network_NAT(self.ri, self.int_port,
                                                  self.ext_gw_port)
 
-        self._assert_number_of_edit_run_cfg_calls(3)
+        self._assert_number_of_edit_run_cfg_calls(4)
 
         acl_name = '%(acl_prefix)s_%(region_id)s_%(vlan)s_%(port)s' % {
                    'acl_prefix': 'neutron_acl',
