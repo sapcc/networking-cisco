@@ -48,6 +48,30 @@ from config import UcsmBmConfig
 
 import ssl
 
+###
+# Basing it of CommonAgentManagerBase imposes some requirements,
+# which may make the code look uncessecary complicated:
+# - The manager needs to return a device in the known devices,
+#   before ever receiving a port_binding request, other it will be filtered out,
+#   as the base assumes, that it is not intended for this manager
+#   => We know only MACs, so we return them
+#      (CiscoUcsmBareMetalManager#get_all_devices)
+# For getting the VLAN, we need to specify the device and the binding host.
+# - The binding host is the uuid of the ironic bare-metal node, which we do not
+#   know. But prior the binding, we receive a port_update, which allows us to
+#   remember that association.
+#   It does also gives us the UUID of the port, which we need to remember.
+#   We do not receive the segment for our agent here though.
+# - Ironic creates two ports with the same MAC, one in the management network,
+#   the other one in the tenant network. Querying the device for the MAC
+#   might give you either, so we have to query the port for its UUID
+#   (which we have stored in CiscoUcsmBareMetalRpc#port_update)
+# - Finally, as we query the device via the port UUID, the attribute 'device'
+#   will be the UUID, the base expects it to be the MAC, as we return them in
+#   CiscoUcsmBareMetalManager#get_all_devices.
+#   => We have to change the 'device' field back to a MAC in
+#      (AgentLoop#_get_devices_details_list)
+
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -107,13 +131,12 @@ class CiscoUcsmBareMetalRpc(amb.CommonAgentManagerRpcCallBackBase):
     def port_update(self, context, **kwargs):
         port = kwargs['port']
         LOG.debug("port_update received for port %s ", port)
-        mac = port['mac_address']
-        binding_host_id = port['binding:host_id']
-        self.agent.mgr.set_binding_host_id(mac, binding_host_id)
-        self.updated_devices.add(mac)
+        self.agent.mgr.set_mapping(port)
+        self.updated_devices.add(port['mac_address'])
 
 @attr.s
 class _PortInfo(object):
+    port_id = attr.ib(default=None)
     ucsm_ip = attr.ib(default=None)
     binding_host_id = attr.ib(default=None)
 
@@ -132,9 +155,15 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
     def ensure_port_admin_state(self, device, admin_state_up):
         pass
 
-    def set_binding_host_id(self, mac, binding_host_id):
+    def set_mapping(self, port):
+        port_id = port['id']
+        mac = port['mac_address']
+        binding_host_id = port['binding:host_id']
+
         LOG.debug("Bound {} to {}".format(mac, binding_host_id))
-        self._ports[mac.lower()].binding_host_id = binding_host_id
+        info = self._ports[mac.lower()]
+        info.port_id = port_id
+        info.binding_host_id = binding_host_id
 
     def get_agent_configurations(self):
         # The very least, we have to return the physical networks as keys
@@ -154,9 +183,9 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
     def get_extension_driver_type(self):
         return 'ucsm_bm'
 
-    def get_binding_host_id(self, device):
+    def get_port_info(self, device):
         if device in self._ports:
-            return self._ports[device.lower()].binding_host_id
+            return self._ports[device.lower()]
 
     def get_rpc_consumers(self):
         consumers = [[topics.PORT, topics.UPDATE],
@@ -302,14 +331,16 @@ class AgentLoop(ca.CommonAgentLoop):
         LOG.debug("Looking up {}".format(devices))
         devices_by_host = defaultdict(list)
         for device in devices:
-            binding_host_id = self.mgr.get_binding_host_id(device)
-            if binding_host_id:
-                devices_by_host[binding_host_id].append(device)
+            port_info = self.mgr.get_port_info(device)
+            if port_info and port_info.binding_host_id and port_info.port_id:
+                devices_by_host[port_info.binding_host_id].append(port_info.port_id)
         device_details = []
         for host, devices_on_host in six.iteritems(devices_by_host):
-            device_details.extend(
-                self.plugin_rpc.get_devices_details_list(self.context, devices, self.agent_id, host=host)
-            )
+            LOG.debug("Querying {} for {}".format(devices_on_host, host))
+            for device in self.plugin_rpc.get_devices_details_list(self.context, devices_on_host, self.agent_id, host=host):
+                device['device'] = device['mac_address']
+                device_details.append(device)
+
         LOG.debug("Found {}".format(device_details))
         return device_details
 
