@@ -16,6 +16,7 @@ from types import ModuleType
 
 from distutils.version import StrictVersion
 
+from neutron.plugins.ml2.drivers import type_tunnel
 from neutron import version
 
 
@@ -47,16 +48,40 @@ else:
     setattr(constants, 'ATTR_NOT_SPECIFIED', getattr(attributes,
                                                      'ATTR_NOT_SPECIFIED'))
 
+
 if NEUTRON_VERSION >= NEUTRON_OCATA_VERSION:
+    from neutron.db.models import agent as agent_model
+    from neutron.db.models import l3 as l3_models
     from neutron_lib.api import extensions
     from neutron_lib.db import model_base
     from neutron_lib.plugins import directory
 
+    try:
+        from neutron import context
+    except ImportError:
+        from neutron_lib import context
+
     get_plugin = directory.get_plugin
     n_c_attr_names = dir(n_c)
     HasProject = model_base.HasProject
+    VXLAN_TUNNEL_TYPE = type_tunnel.ML2TunnelTypeDriver
+    Agent = agent_model.Agent
+    RouterPort = l3_models.RouterPort
+    Router = l3_models.Router
+
+    def get_context():
+        return context.Context()
+
+    def get_db_ref(context):
+        return context
+
+    def get_tunnel_session(context):
+        return context.session
 else:
     from neutron.api import extensions  # noqa
+    from neutron.db import agents_db
+    from neutron.db import api as db_api
+    from neutron.db import l3_db
     from neutron.db import model_base  # noqa
     from neutron.db import models_v2
     from neutron import manager
@@ -70,6 +95,20 @@ else:
 
     HasProject = models_v2.HasTenant
     setattr(constants, 'L3', getattr(svc_constants, 'L3_ROUTER_NAT'))
+    VXLAN_TUNNEL_TYPE = type_tunnel.TunnelTypeDriver
+    Agent = agents_db.Agent
+    RouterPort = l3_db.RouterPort
+    Router = l3_db.Router
+
+    def get_context():
+        return None
+
+    def get_db_ref(context):
+        return db_api.get_session()
+
+    def get_tunnel_session(context):
+        return context
+
 
 core_opts = base_config.core_opts
 
