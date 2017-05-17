@@ -1313,7 +1313,10 @@ class ConfigSyncer(object):
                     pending_delete_list.append(intf)
                     continue
 
-            correct_grp_num = int(db_intf[ha.HA_INFO]['group'])
+            if (ha.HA_INFO in db_intf):
+                correct_grp_num = int(db_intf[ha.HA_INFO]['group'])
+            else:
+                correct_grp_num = None
 
             if intf.is_external:
                 intf_db = self.segment_gw_dict
