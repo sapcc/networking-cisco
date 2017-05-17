@@ -112,21 +112,16 @@ class CiscoUcsmBareMetalRpc(amb.CommonAgentManagerRpcCallBackBase):
     target = oslo_messaging.Target(version='1.4')
 
     def security_groups_rule_updated(self, context, **kwargs):
-        LOG.warning("Security groups not implemented")
+        pass
 
     def security_groups_member_updated(self, context, **kwargs):
-        LOG.warning("Security groups not implemented")
+        pass
 
     def security_groups_provider_updated(self, context, **kwargs):
-        LOG.warning("Security groups not implemented")
+        pass
 
     def network_delete(self, context, **kwargs):
-        LOG.debug("network_delete received")
-        network_id = kwargs.get('network_id')
-
-        if network_id not in self.network_map:
-            LOG.error(_LE("Network %s is not available."), network_id)
-            return
+        pass
 
     def port_update(self, context, **kwargs):
         port = kwargs['port']
@@ -328,7 +323,6 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
 
 class AgentLoop(ca.CommonAgentLoop):
     def _get_devices_details_list(self, devices):
-        LOG.debug("Looking up {}".format(devices))
         devices_by_host = defaultdict(list)
         for device in devices:
             port_info = self.mgr.get_port_info(device)
