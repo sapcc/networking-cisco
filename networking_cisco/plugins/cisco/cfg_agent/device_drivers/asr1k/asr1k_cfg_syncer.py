@@ -1317,7 +1317,7 @@ class ConfigSyncer(object):
             ha_info = db_intf.get(ha.HA_INFO)
 
             if not ha_info:
-                LOG.error(_LI("Skipping sync for router %s no ha_info is available in %s",router_id,db_intf))
+                LOG.error(_LI("Skipping sync for router %s no ha_info is available in %s"),router_id,db_intf)
                 continue
 
             correct_grp_num = int(ha_info['group'])
