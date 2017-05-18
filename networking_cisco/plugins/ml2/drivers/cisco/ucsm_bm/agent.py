@@ -341,7 +341,9 @@ class AgentLoop(ca.CommonAgentLoop):
         for host, devices_on_host in six.iteritems(devices_by_host):
             LOG.debug("Querying {} for {}".format(devices_on_host, host))
             for device in self.plugin_rpc.get_devices_details_list(self.context, devices_on_host, self.agent_id, host=host):
-                device['device'] = device['mac_address']
+                mac_address = device.get('mac_address')
+                if mac_address:
+                    device['device'] = mac_address
                 device_details.append(device)
 
         LOG.debug("Found {}".format(device_details))
