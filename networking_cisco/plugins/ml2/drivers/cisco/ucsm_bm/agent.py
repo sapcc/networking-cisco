@@ -214,21 +214,30 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
                     handle.UndoTransaction()
                     return False
 
-                to_delete = [eth_if for eth_if in crc.OutConfigs.GetChild()]
-                LOG.debug("Removing {}".format([eth_if.Dn for eth_if in to_delete]))
+                exists = False
+                to_delete = []
+                for eth_if in crc.OutConfigs.GetChild():
+                    if eth_if.Name != vlan.Name:
+                        to_delete.append(eth_if)
+                    else:
+                        exists = True
+
                 if to_delete:
+                    LOG.debug("Removing {}".format([eth_if.Dn for eth_if in to_delete]))
                     handle.RemoveManagedObject(inMo=to_delete)
 
-                vlan_path = (eth.Dn + constants.VLAN_PATH_PREFIX +
-                                vlan.Name)
+                if exists:
+                    LOG.debug("Already bound {}".format(vlan.Name))
+                else:
+                    vlan_path = (eth.Dn + constants.VLAN_PATH_PREFIX + vlan.Name)
 
-                LOG.debug("Adding {}".format(vlan.Name))
+                    LOG.debug("Adding {}".format(vlan.Name))
 
-                handle.AddManagedObject(eth,
-                    self.ucsmsdk.VnicEtherIf.ClassId(),
-                    {self.ucsmsdk.VnicEtherIf.DN: vlan_path,
-                    self.ucsmsdk.VnicEtherIf.NAME: vlan.Name,
-                    self.ucsmsdk.VnicEtherIf.DEFAULT_NET: "yes"}, True)
+                    handle.AddManagedObject(eth,
+                        self.ucsmsdk.VnicEtherIf.ClassId(),
+                        {self.ucsmsdk.VnicEtherIf.DN: vlan_path,
+                        self.ucsmsdk.VnicEtherIf.NAME: vlan.Name,
+                        self.ucsmsdk.VnicEtherIf.DEFAULT_NET: "yes"}, True)
             handle.CompleteTransaction()
 
         LOG.debug("Done")
