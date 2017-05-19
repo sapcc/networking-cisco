@@ -795,8 +795,10 @@ class RoutingServiceHelper(object):
                               len(p['fixed_ips']) > len(q['fixed_ips']))]
         else:
             new_ports = [p for p in internal_ports
-                     if
-                     p['id'] in (current_port_ids - existing_port_ids)]
+                     if p['id'] in (current_port_ids - existing_port_ids)]
+        new_ports = [
+            p for p in sorted(new_ports,
+                              key=lambda i: i['fixed_ips'][0]['ip_address'])]
         old_ports = [p for p in ri.internal_ports
                      if p['id'] not in current_port_ids]
 
