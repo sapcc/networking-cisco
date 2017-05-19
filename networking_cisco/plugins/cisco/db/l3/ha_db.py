@@ -861,9 +861,12 @@ class HA_db_mixin(object):
     def _populate_port_ha_information(self, context, port, router_id, hag_dbs,
                                       user_router_id, modified_interfaces):
         #subnet_id = port['fixed_ips'][0]['subnet_id']
-        
+
         for fixed_ip in port['fixed_ips']:
+
             subnet_id = fixed_ip['subnet_id']
+
+            LOG.debug('Looking for HA group for router %s, subnet %s',router_id,subnet_id)
 
             try:
                 hag_db = hag_dbs[subnet_id]
@@ -882,7 +885,7 @@ class HA_db_mixin(object):
                                                               subnet_id)
                 except exc.NoResultFound:
                     hag_db = None
-            if not hag_db:
+            if hag_db is not None:
                 break
 
 
