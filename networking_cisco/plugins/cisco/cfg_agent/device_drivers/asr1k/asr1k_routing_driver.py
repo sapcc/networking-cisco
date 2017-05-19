@@ -242,8 +242,9 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                                    'ip_address']})
                     self._set_subnet_info(
                         current_ports[0],
-                        current_ports[0]['fixed_ips'][0]['subnet_id'])
+                        current_ports[0]['fixed_ips'][0]['subnet_id'], False)
                     self._remove_secondary_ipv4(ri, current_ports[0])
+                    current_ports[0]['ip_info']['is_primary'] = True
                     self._set_primary_ipv4(ri, current_ports[0])
                 else:
                     # no ports on that network remain so we can just remove
@@ -288,8 +289,9 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                                'ip_address']})
                 self._set_subnet_info(
                     current_ports[0],
-                    current_ports[0]['fixed_ips'][0]['subnet_id'])
+                    current_ports[0]['fixed_ips'][0]['subnet_id'], False)
                 self._remove_secondary_ipv4(ri, current_ports[0])
+                current_ports[0]['ip_info']['is_primary'] = True
                 self._set_primary_ipv4(ri, current_ports[0])
 
     def external_gateway_added(self, ri, ext_gw_port):
@@ -754,6 +756,9 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                 sub_interface, group, ip))
             self._edit_running_config(
                 conf_str, 'REMOVE_INTC_ASR_SECONDARY_HSRP_EXTERNAL')
+        else:
+            LOG.debug('Standby IP address is not secondary so not removing '
+                      'that configuration')
 
     def _create_sub_interface_v6(self, ri, port, is_external=False, gw_ip=""):
         if self._v6_port_needs_config(port) is not True:
