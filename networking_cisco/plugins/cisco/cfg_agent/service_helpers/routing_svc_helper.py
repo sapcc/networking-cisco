@@ -438,6 +438,8 @@ class RoutingServiceHelper(object):
                 routers = self._fetch_router_chunk_data(router_ids)
 
             elif device_ids:
+                LOG.debug('Fetching routers for hosting devices %(hd_ids)s',
+                          {'hd_ids': device_ids})
                 return self.plugin_rpc.get_routers(self.context,
                                                    hd_ids=device_ids)
         except oslo_messaging.MessagingTimeout:
