@@ -751,9 +751,8 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
     def _do_remove_ha_hsrp_asr1k(self, sub_interface, group, ip,
                                  is_primary=True):
         if is_primary is False:
-            conf_str = (
-                asr1k_snippets.REMOVE_INTC_ASR_SECONDARY_HSRP_EXTERNAL % (
-                sub_interface, group, ip))
+            conf_str = (asr1k_snippets.REMOVE_INTC_ASR_SECONDARY_HSRP_EXTERNAL
+                        % (sub_interface, group, ip))
             self._edit_running_config(
                 conf_str, 'REMOVE_INTC_ASR_SECONDARY_HSRP_EXTERNAL')
         else:
