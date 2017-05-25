@@ -1032,16 +1032,19 @@ class ConfigSyncer(object):
 
     def subintf_hsrp_ip_check(self, intf_list, is_external, ip_addr):
         for target_intf in intf_list:
-            ha_intf = target_intf[ha.HA_INFO]['ha_port']
-            target_ip = ha_intf['fixed_ips'][0]['ip_address']
-            LOG.info("target_ip: %(target_ip)s, actual_ip: %(ip_addr)s" %
-                     {'target_ip': target_ip,
-                      'ip_addr': ip_addr})
-            if ip_addr != target_ip:
-                LOG.info("HSRP VIP mismatch, deleting")
-                return False
+            ha_info = target_intf.get(ha.HA_INFO)
+            if ha_info:
+                ha_intf = ha_info.get('ha_port')
 
-            return True
+                target_ip = ha_intf['fixed_ips'][0]['ip_address']
+                LOG.info("target_ip: %(target_ip)s, actual_ip: %(ip_addr)s" %
+                         {'target_ip': target_ip,
+                          'ip_addr': ip_addr})
+                if ip_addr != target_ip:
+                    LOG.info("HSRP VIP mismatch, deleting")
+                    return False
+
+                return True
 
         return False
 
