@@ -1314,13 +1314,10 @@ class ConfigSyncer(object):
                     pending_delete_list.append(intf)
                     continue
 
-            ha_info = db_intf.get(ha.HA_INFO)
-
-            if not ha_info:
-                LOG.error(_LI("Skipping sync for router no ha_info is available in %s"),db_intf)
-                continue
-
-            correct_grp_num = int(ha_info['group'])
+            if (ha.HA_INFO in db_intf):
+                correct_grp_num = int(db_intf[ha.HA_INFO]['group'])
+            else:
+                correct_grp_num = None
 
             if intf.is_external:
                 intf_db = self.segment_gw_dict
