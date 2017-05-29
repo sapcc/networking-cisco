@@ -24,7 +24,6 @@ import webob.exc
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron import context
 from neutron.db import l3_db
 from neutron.extensions import extraroute
 from neutron.extensions import l3
@@ -1480,8 +1479,12 @@ class HAL3RouterApplianceVMTestCase(
             r_routers = self._list('routers', query_params=params)['routers']
             self.assertEqual(2, len(r_routers))
             newName = 'routerOne'
-            r_updated = self._update('routers', r_routers[0]['id'],
-                                     {'router': {'name': newName}})['router']
+            admin_ctx = bc.context.get_admin_context()
+            # We call the plugin function directly rather than calling via the
+            # REST API as the latter would be rejected since it's a router
+            # managed by the L3 router service plugin.
+            r_updated = self.l3_plugin.update_router(
+                admin_ctx, r_routers[0]['id'], {'router': {'name': newName}})
             self.assertEqual(newName, r_updated['name'])
             routers = self._list('routers')['routers']
             # should have no new routers
