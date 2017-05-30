@@ -67,7 +67,7 @@ def upgrade():
                                 ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['subnet_id'], ['subnets.id']),
         sa.ForeignKeyConstraint(['user_router_id'], ['routers.id']),
-        sa.PrimaryKeyConstraint('ha_port_id', 'subnet_id')
+        sa.PrimaryKeyConstraint('ha_port_id')
     )
     op.create_table('cisco_router_redundancy_bindings',
         sa.Column('redundancy_router_id', sa.String(36)),
