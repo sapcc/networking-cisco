@@ -385,13 +385,13 @@ class RoutingServiceHelper(object):
             if all_routers:
                 LOG.debug('Fetching all routers')
                 router_ids = self.plugin_rpc.get_router_ids(self.context)
-                return self._fetch_router_chunk_data(router_ids)
+                routers = self._fetch_router_chunk_data(router_ids)
 
-            if router_ids:
+            elif router_ids:
                 LOG.debug('Fetching routers: %(r_ids)s', {'r_ids': router_ids})
-                return self._fetch_router_chunk_data(router_ids)
+                routers = self._fetch_router_chunk_data(router_ids)
 
-            if device_ids:
+            elif device_ids:
                 LOG.debug('Fetching routers for hosting devices %(hd_ids)s',
                           {'hd_ids': device_ids})
                 return self.plugin_rpc.get_routers(self.context,
@@ -399,7 +399,7 @@ class RoutingServiceHelper(object):
         except oslo_messaging.MessagingTimeout:
             if self.sync_routers_chunk_size > SYNC_ROUTERS_MIN_CHUNK_SIZE:
                 self.sync_routers_chunk_size = max(
-                    self.sync_routers_chunk_size / 2,
+                    int(round(self.sync_routers_chunk_size / 2)),
                     SYNC_ROUTERS_MIN_CHUNK_SIZE)
                 LOG.warning(_LW('Server failed to return info for routers in '
                                 'required time, decreasing chunk size to: %s'),
@@ -413,9 +413,8 @@ class RoutingServiceHelper(object):
             raise
         except oslo_messaging.MessagingException:
             LOG.exception(_LE("RPC Error in fetching routers from plugin"))
+            self.fullsync = True
             raise n_exc.AbortSyncRouters()
-
-        self.fullsync = True
 
         LOG.debug("Periodic_sync_routers_task successfully completed")
         # adjust chunk size after successful sync
@@ -424,6 +423,7 @@ class RoutingServiceHelper(object):
             self.sync_routers_chunk_size = min(
                 self.sync_routers_chunk_size + SYNC_ROUTERS_MIN_CHUNK_SIZE,
                 cfg.CONF.cfg_agent.max_device_sync_batch_size)
+        return routers
 
     def _fetch_router_chunk_data(self, router_ids=None):
 
