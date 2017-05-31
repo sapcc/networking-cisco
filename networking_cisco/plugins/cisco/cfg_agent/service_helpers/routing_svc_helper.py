@@ -435,6 +435,7 @@ class RoutingServiceHelper(object):
                 routers = self._fetch_router_chunk_data(router_ids)
 
             elif router_ids:
+                LOG.debug('Fetching routers: %(r_ids)s', {'r_ids': router_ids})
                 routers = self._fetch_router_chunk_data(router_ids)
 
             elif device_ids:
