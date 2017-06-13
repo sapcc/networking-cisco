@@ -196,7 +196,7 @@ class RoutingServiceHelper(object):
         self.removed_routers = set()
         self.sync_devices = set()
         self.sync_devices_attempts = 0
-        self.fullsync = True
+        self.fullsync = self.conf.enable_full_sync
         self.sync_routers_chunk_size = (
             cfg.CONF.cfg_agent.max_device_sync_batch_size)
         self.topic = '%s.%s' % (c_constants.CFG_AGENT_L3_ROUTING, host)
@@ -254,6 +254,9 @@ class RoutingServiceHelper(object):
             routers = []
             removed_routers = []
             all_routers_flag = False
+
+            LOG.info("Checking full sync state: %s",self.conf.enable_full_sync)
+
             if self.fullsync:
                 LOG.debug("The fullsync flag is set. Starting complete sync")
                 # Setting all_routers_flag and clear the global full_sync flag
@@ -268,6 +271,8 @@ class RoutingServiceHelper(object):
                 if routers is not None:
                     self._cleanup_invalid_cfg(routers)
             else:
+
+
                 if self.updated_routers:
                     router_ids = list(self.updated_routers)
                     LOG.debug("Updated routers: %s", router_ids)
