@@ -126,6 +126,11 @@ OPTS = [
                       "means with default value of keepalive_interval "
                       "(10sec), a full report is sent once every "
                       "6*10 = 60 seconds.")),
+
+    cfg.BoolOpt('enable_full_sync',
+                default=False,
+                help=_("If enabled, the agent will perform a full syn on start up.")),
+
 ]
 
 cfg.CONF.register_opts(OPTS, "cfg_agent")
@@ -331,7 +336,7 @@ class CiscoCfgAgent(manager.Manager):
         try:
             if payload['hosting_device_ids']:
                 #TODO(hareeshp): implement assignment of hosting devices
-                self.routing_service_helper.fullsync = True
+                self.routing_service_helper.fullsync = self.conf.enable_full_sync
         except KeyError as e:
             LOG.error("Invalid payload format for received RPC message "
                       "`hosting_devices_assigned_to_cfg_agent`. Error is "
