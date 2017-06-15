@@ -663,7 +663,15 @@ class ConfigSyncer(object):
 
             # Check that hsrp group name is correct
             gw_port = router['gw_port']
-            gw_hsrp_num = int(gw_port[ha.HA_INFO]['group'])
+
+            ha_info = gw_port.get(ha.HA_INFO,None)
+
+            if ha_info:
+                gw_hsrp_num = int(ha_info['group'])
+            else:
+                LOG.warn(_LI("Cannot determine HA info for gateway port, skipping router %s gateway port %s"), router_id, gw_port)
+                continue
+
             gw_segment_id = int(gw_port['hosting_info']['segmentation_id'])
             if segment_id != gw_segment_id:
                 LOG.info("snat segment_id does not match router's"
