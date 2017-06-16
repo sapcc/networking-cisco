@@ -24,7 +24,7 @@ from oslo_log import log as logging
 
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k import (
-    asr1k_snippets as asr_snippets)
+    asr1k_snippets as asr_snippets, alerts)
 from networking_cisco.plugins.cisco.common import cisco_constants
 from networking_cisco.plugins.cisco.common.htparser import HTParser
 from networking_cisco.plugins.cisco.extensions import ha
@@ -32,6 +32,8 @@ from networking_cisco.plugins.cisco.extensions import routerrole
 
 LOG = logging.getLogger(__name__)
 
+CLEANING_MODE_ALERT = 'ALERT'
+CLEANING_MODE_DELETE = 'DELETE'
 
 ROUTER_ROLE_ATTR = routerrole.ROUTER_ROLE_ATTR
 ROUTER_ROLE_HA_REDUNDANCY = cisco_constants.ROUTER_ROLE_HA_REDUNDANCY
@@ -161,6 +163,23 @@ MAX_RETRY_ATTEMPTS = 3
 MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS = MAX_RETRY_ATTEMPTS
 
 
+CLEANING_OPTS = [
+    cfg.StrOpt('cleaning_mode',
+               default='ALERT',
+               help=_("General Mode to operate cleaning during the sync one of ALERT or DELETE")),
+    cfg.StrOpt('cleaning_mode_snat',
+               default='DELETE',
+               help=_("Mode to operate cleaning SNAT during the sync one of ALERT or DELETE")),
+    cfg.StrOpt('cleaning_mode_routes',
+               default='DELETE',
+               help=_("Mode to operate cleaning routes during the sync one of ALERT or DELETE"))
+
+
+]
+
+cfg.CONF.register_opts(CLEANING_OPTS, "cleaning")
+
+
 def is_port_v6(port):
     prefix = port['subnets'][0]['cidr']
     if netaddr.IPNetwork(prefix).version == 6:
@@ -169,7 +188,7 @@ def is_port_v6(port):
         return False
 
 
-class ConfigSyncer(object):
+class ConfigSyncer(object,alerts.AlertMixin):
 
     def __init__(self, router_db_info, driver,
                  hosting_device_info, test_mode=False):
@@ -191,6 +210,14 @@ class ConfigSyncer(object):
         self.intf_segment_dict = interface_segment_dict
         self.segment_nat_dict = segment_nat_dict
         self.test_mode = test_mode
+
+
+
+
+        LOG.info("Default clean mode is set to %s",cfg.CONF.cleaning.cleaning_mode)
+        LOG.info("SNAT clean mode is set to %s",cfg.CONF.cleaning.cleaning_mode_snat)
+        LOG.info("Route clean mode is set to %s",cfg.CONF.cleaning.cleaning_mode_routes)
+
         if (cfg.CONF.multi_region.enable_multi_region):
             self.route_regex = DEFAULT_ROUTE_MULTI_REGION_REGEX
         else:
@@ -399,7 +426,10 @@ class ConfigSyncer(object):
         if not self.test_mode:
             for vrf_name in invalid_vrfs:
                 confstr = asr_snippets.REMOVE_VRF_DEFN % vrf_name
-                conn.edit_config(target='running', config=confstr)
+                if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync VRF clean attempt", confstr)
 
         LOG.debug("invalid_vrfs = %s" % (pp.pformat(invalid_vrfs)))
         return invalid_vrfs
@@ -498,7 +528,15 @@ class ConfigSyncer(object):
                 del_cmd = XML_CMD_TAG % ("no %s" % (pool_cfg))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Delete pool: %s", del_cmd)
-                conn.edit_config(target='running', config=confstr)
+
+
+                if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT Pool clean attempt", confstr)
+
+
+
         LOG.debug("delete_pool_list = %s " % (pp.pformat(delete_pool_list)))
         return delete_pool_list
 
@@ -590,7 +628,13 @@ class ConfigSyncer(object):
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Delete default route: %(del_cmd)s" %
                          {'del_cmd': del_cmd})
-                conn.edit_config(target='running', config=confstr)
+
+                if cfg.CONF.cleaning.cleaning_mode_routes == CLEANING_MODE_DELETE:
+                    self.emit_alert(alerts.ALERT_INFO, "Sync routes delete attempt", confstr)
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync Routes clean attempt", confstr)
+
 
         LOG.debug("delete_route_list = %s " % (pp.pformat(delete_route_list)))
         return delete_route_list
@@ -712,7 +756,13 @@ class ConfigSyncer(object):
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Delete SNAT: %(del_cmd)s" %
                          {'del_cmd': del_cmd})
-                conn.edit_config(target='running', config=confstr)
+
+                if cfg.CONF.cleaning.cleaning_mode_snat == CLEANING_MODE_DELETE:
+                    self.emit_alert(alerts.ALERT_INFO, "Sync SNAT delete attempt", confstr)
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync SNAT clean attempt", confstr)
+
 
         LOG.debug("delete_fip_list = %s " % (pp.pformat(delete_fip_list)))
         return delete_fip_list
@@ -812,7 +862,12 @@ class ConfigSyncer(object):
                 wipestr = asr_snippets.CLEAR_IP_NAT_TRANSLATIONS_VRF % vrf_name
                 for attempts in range(MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS):
                     try:
-                        conn.edit_config(target='running', config=confstr)
+
+                        if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                            conn.edit_config(target='running', config=confstr)
+                        else:
+                            self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT overload clean attempt", confstr)
+
                         break
                     except RPCError as e:
                         LOG.info(_LI('e.type = %(etype)s e.tag = %(etag)s'),
@@ -830,7 +885,12 @@ class ConfigSyncer(object):
                                       {'vrf_name': vrf_name,
                                        'del_cmd': del_cmd})
                         else:
-                            conn.edit_config(target='running', config=wipestr)
+                            if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                                conn.edit_config(target='running', config=wipestr)
+                            else:
+                                self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT overload (wipe) clean attempt", wipestr)
+
+
 
         LOG.debug("delete_nat_list = %s " % (pp.pformat(delete_nat_list)))
         return delete_nat_list
@@ -926,7 +986,12 @@ class ConfigSyncer(object):
                 del_cmd = XML_CMD_TAG % ("no %s" % (acl_cfg))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Delete ACL: %(del_cmd)s" % {'del_cmd': del_cmd})
-                conn.edit_config(target='running', config=confstr)
+                if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync ACL clean attempt", confstr)
+
+
 
         LOG.debug("delete_acl_list = %s" % (pp.pformat(delete_acl_list)))
         return delete_acl_list
@@ -1371,7 +1436,11 @@ class ConfigSyncer(object):
                 del_cmd = XML_CMD_TAG % ("no %s" % (intf.text))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info("Deleting %s", (intf.text))
-                conn.edit_config(target='running', config=confstr)
+                if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
+                    conn.edit_config(target='running', config=confstr)
+                else:
+                    self.emit_alert(alerts.ALERT_CRITICAL, "Sync Interface clean attempt", confstr)
+
 
         LOG.debug("pending_delete_list (interfaces) = %s" %
                   pp.pformat(pending_delete_list))
