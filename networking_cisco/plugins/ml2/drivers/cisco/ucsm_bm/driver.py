@@ -15,6 +15,8 @@
 
 from neutron.plugins.ml2.drivers.mech_agent import SimpleAgentMechanismDriverBase
 import constants
+
+from bisect import bisect
 from neutron.extensions import portbindings
 from neutron._i18n import _LE, _LI, _LW
 from networking_cisco import backwards_compatibility as bc
@@ -70,7 +72,20 @@ class CiscoUcsmBareMetalDriver(SimpleAgentMechanismDriverBase):
 
     def try_to_bind_segment_for_agent(self, context, segment, agent):
         mac_address = context.current['mac_address'].lower()
-        if not mac_address in agent['configurations']['all_devices']:
+        mac_blocks = agent['configurations'].get('mac_blocks', [])
+
+        # bisect will yield the pos (i) behind the last value, which is <=.
+        # i-1 would then be the block containing the mac address
+        # 'z' is always larger than a mac address, so if the mac_address
+        # coincides with the beginning of a block, it will still yield a position
+        # after the block, as it will if the mac_address is behind the beginning of the block
+        pos = bisect.bisect(mac_blocks, (mac_address, 'z')) - 1
+
+        if pos < 0:
+            LOG.debug("Mac address out of range for agent")
+            return False
+
+        if mac_address < mac_blocks[pos][0] or mac_blocks[pos][1] < mac_address:
             LOG.debug("Mac address out of range for agent")
             return False
 
@@ -88,4 +103,3 @@ class CiscoUcsmBareMetalDriver(SimpleAgentMechanismDriverBase):
                 items.append(item)
 
         return items
-

@@ -24,6 +24,7 @@ import sys
 import logging
 import attr
 
+from bisect import insort
 from contextlib import contextmanager
 from collections import defaultdict
 
@@ -135,14 +136,41 @@ class _PortInfo(object):
     ucsm_ip = attr.ib(default=None)
     binding_host_id = attr.ib(default=None)
 
+def for_all_hosts(f):
+    six.wraps(f)
+    def wrapper(self, *args, **kwds):
+        for ucsm_ip in self.ucsm_conf.get_all_ucsm_ips()
+            with self.ucsm_connect_disconnect(ucsm_ip) as handle:
+                kwds['handle'] = handle
+                yield ucsm_ip, f(self, *args, **kwds)
+    return wrapper
+
+
 class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
     def __init__(self, config):
         super(amb.CommonAgentManagerBase, self).__init__()
         self.ucsm_conf = config
         self._ports = defaultdict(_PortInfo)
-        self.ucsmsdk = None
-
+        self._ucsmsdk = None
+        self._mac_blocks = self._discover_mac_blocks()
         self._discover_devices()
+
+    @for_all_hosts
+    def get_all(self, class_id, path=None, handle=None):
+        for device in self._get_devices_for_handle(class_id, path, handle=handle):
+            yield device
+
+    def _discover_mac_blocks(self, path=None):
+        blocks = []
+        for first, last, ucsm_ip in self.get_all_mac_blocks(path):
+            insort(blocks, (first, last, ucsm_ip))
+        return blocks
+
+    def get_all_mac_blocks(self, path=None):
+        macpool_block_id = self.ucsmsdk.MacpoolBlock.ClassId()
+        for ucsm_ip, blocks in self.get_all(macpool_block_id):
+            for block in blocks:
+                yield block.From.lower(), block.To.lower(), ucsm_ip
 
     def get_rpc_callbacks(self, context, agent, sg_agent):
         return CiscoUcsmBareMetalRpc(context, agent, sg_agent)
@@ -164,7 +192,7 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
         # The very least, we have to return the physical networks as keys
         # of the bridge_mappings
         return {'physical_networks': self.ucsm_conf.get_networks(),
-                'all_devices': six.viewkeys(self._ports) }
+                'mac_blocks': [(block[0], block[1]) for block in self._mac_blocks] }
 
     def get_agent_id(self):
         return 'cisco-ucs-bm-agent-%s' % cfg.CONF.host
@@ -267,11 +295,14 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
         finally:
             self.ucs_manager_disconnect(handle, ucsm_ip)
 
+    @property
+    def ucsmsdk(self):
+        if not self._ucsmsdk:
+            self._ucsmsdk = self._import_ucsmsdk()
+        return self._ucsmsdk
+
     def ucs_manager_connect(self, ucsm_ip):
         """Connects to a UCS Manager."""
-        if not self.ucsmsdk:
-            self.ucsmsdk = self._import_ucsmsdk()
-
         username, password = self.ucsm_conf.get_credentials_for_ucsm_ip(ucsm_ip)
         if not username:
             LOG.error(_LE('UCS Manager network driver failed to get login '
@@ -329,6 +360,15 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
             for child in crc.OutConfigs.GetChild():
                 if child.Addr != 'derived':
                     yield child.Addr
+
+    def _get_devices_for_handle(self, class_id, path, handle=None):
+        crc = get_resolve_class(handle, class_id, create_dn_in_filter(self.ucsmsdk, class_id, path))
+        if crc.errorCode != 0:
+            LOG.debug("Could not resolve device with path {}".format(path))
+        else:
+            for child in crc.OutConfigs.GetChild():
+                yield child
+
 
 class AgentLoop(ca.CommonAgentLoop):
     def _get_devices_details_list(self, devices):
