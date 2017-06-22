@@ -19,3 +19,6 @@ oslo.utils>=3.5.0                       # Apache-2.0
 neutron-lib>=0.1.0 # Apache-2.0
 python-neutronclient
 pika>=0.10.0
+
+prometheus_client>=0.0.19
+

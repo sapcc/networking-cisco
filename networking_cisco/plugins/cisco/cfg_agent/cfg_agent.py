@@ -37,6 +37,7 @@ from neutron import manager
 from neutron import service as neutron_service
 
 from networking_cisco._i18n import _
+from networking_cisco import prometheus
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.backwards_compatibility import neutron_agent_conf
 from networking_cisco.plugins.cisco.cfg_agent import device_status
@@ -165,6 +166,8 @@ class CiscoCfgAgent(manager.Manager):
         self._initialize_rpc(host)
         self._initialize_service_helpers(host)
         self._start_periodic_tasks()
+        self.prometheus = prometheus.Prometheus()
+        self.prometheus.start_prometheus_exporter()
         super(CiscoCfgAgent, self).__init__(host=self.conf.host)
 
     def _initialize_rpc(self, host):

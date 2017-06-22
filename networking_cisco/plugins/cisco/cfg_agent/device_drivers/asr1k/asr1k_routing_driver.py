@@ -19,7 +19,7 @@ import time
 from oslo_config import cfg
 
 from networking_cisco._i18n import _
-
+from networking_cisco import prometheus
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.cfg_agent import cfg_exceptions as cfg_exc
 from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k import (
@@ -72,12 +72,15 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
         self.hosting_device = {'id': device_params.get('id'),
                                'device_id': device_params.get('device_id')}
 
+        self.prometheus = prometheus.Prometheus()
+
     # ============== Public functions ==============
     def send_empty_cfg(self):
         LOG.debug("send empty config")
         conf_str = asr1k_snippets.EMPTY_SNIPPET
         self._edit_running_config(conf_str, 'EMPTY_SNIPPET')
 
+    @prometheus.metric(metric="interface", action="inc")
     def internal_network_added(self, ri, port):
         if self._is_port_v6(port):
             LOG.debug("Adding IPv6 internal network port: %(port)s for router "
@@ -162,6 +165,7 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                         former_ports[0]['fixed_ips'][0]['subnet_id'], False)
                     self._set_secondary_ipv4(ri, former_ports[0])
 
+    @prometheus.metric(metric="interface", action="dec")
     def internal_network_removed(self, ri, port):
         if self._is_global_router(ri):
             self._remove_sub_interface(port)
@@ -295,6 +299,7 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                 current_ports[0]['ip_info']['is_primary'] = True
                 self._set_primary_ipv4(ri, current_ports[0])
 
+    @prometheus.metric("ext_gateway", "inc")
     def external_gateway_added(self, ri, ext_gw_port):
         # global router handles IP assignment, HSRP setup
         # tenant router handles interface creation and default route
@@ -304,6 +309,7 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
         else:
             self._handle_external_gateway_added_normal_router(ri, ext_gw_port)
 
+    @prometheus.metric("ext_gateway", "dec")
     def external_gateway_removed(self, ri, ext_gw_port):
         if self._is_global_router(ri):
             self._remove_sub_interface(ext_gw_port)
@@ -320,9 +326,11 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                     self._set_nat_pool(ri, ext_gw_port, True)
                     self._remove_default_route(ri, ext_gw_port)
 
+    @prometheus.metric("floating_ip", "inc")
     def floating_ip_added(self, ri, ext_gw_port, floating_ip, fixed_ip):
         self._add_floating_ip_asr1k(ri, ext_gw_port, floating_ip, fixed_ip)
 
+    @prometheus.metric("floating_ip", "dec")
     def floating_ip_removed(self, ri, ext_gw_port, floating_ip, fixed_ip):
         self._remove_floating_ip(ri, ext_gw_port, floating_ip, fixed_ip)
 
