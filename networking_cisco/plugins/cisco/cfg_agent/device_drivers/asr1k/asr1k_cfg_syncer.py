@@ -25,6 +25,7 @@ from oslo_log import log as logging
 from networking_cisco._i18n import _LE, _LI
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco import alerts
+from networking_cisco import prometheus
 
 from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k import (
     asr1k_snippets as asr_snippets)
@@ -216,6 +217,8 @@ class ConfigSyncer(object,alerts.AlertMixin):
         self.test_mode = test_mode
 
 
+        self.prometheus = prometheus.Prometheus()
+        self.hd_id = self.hosting_device_info.get('id')
 
 
         LOG.info("Default clean mode is set to %s",cfg.CONF.cleaning.cleaning_mode)
@@ -429,6 +432,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
 
         if not self.test_mode:
             for vrf_name in invalid_vrfs:
+                self.prometheus.sync_delete_vrf.labels([self.hd_id]).inc()
                 confstr = asr_snippets.REMOVE_VRF_DEFN % vrf_name
                 if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
                     conn.edit_config(target='running', config=confstr)
@@ -533,6 +537,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info(_LI("Delete pool: %s"), del_cmd)
 
+                self.prometheus.sync_delete_nat_pool.labels([self.hd_id]).inc()
 
                 if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
                     conn.edit_config(target='running', config=confstr)
@@ -633,6 +638,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                 LOG.info(_LI("Delete default route: %(del_cmd)s") %
                          {'del_cmd': del_cmd})
 
+                self.prometheus.sync_delete_route.labels([self.hd_id]).inc()
                 if cfg.CONF.cleaning.cleaning_mode_routes == CLEANING_MODE_DELETE:
                     self.emit_alert(alerts.ALERT_INFO, "Sync routes delete attempt", confstr)
                     conn.edit_config(target='running', config=confstr)
@@ -761,6 +767,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                 LOG.info(_LI("Delete SNAT: %(del_cmd)s") %
                          {'del_cmd': del_cmd})
 
+                self.prometheus.sync_delete_snat.labels([self.hd_id]).inc()
                 if cfg.CONF.cleaning.cleaning_mode_snat == CLEANING_MODE_DELETE:
                     self.emit_alert(alerts.ALERT_INFO, "Sync SNAT delete attempt", confstr)
                     conn.edit_config(target='running', config=confstr)
@@ -864,6 +871,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                          {'del_cmd': del_cmd})
                 vrf_name = re.match('.* vrf (.*) overload', nat_cfg).group(1)
                 wipestr = asr_snippets.CLEAR_IP_NAT_TRANSLATIONS_VRF % vrf_name
+                self.prometheus.sync_delete_nat_pool_overload.labels([self.hd_id]).inc()
                 for attempts in range(MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS):
                     try:
 
@@ -990,6 +998,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                 del_cmd = XML_CMD_TAG % ("no %s" % (acl_cfg))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info(_LI("Delete ACL: %(del_cmd)s") % {'del_cmd': del_cmd})
+                self.prometheus.sync_delete_acl.labels([self.hd_id]).inc()
                 if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
                     conn.edit_config(target='running', config=confstr)
                 else:
@@ -1441,6 +1450,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                 del_cmd = XML_CMD_TAG % ("no %s" % (intf.text))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info(_LI("Deleting %s"), (intf.text))
+                self.prometheus.sync_delete_interface.labels([self.hd_id]).inc()
                 if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
                     conn.edit_config(target='running', config=confstr)
                 else:
