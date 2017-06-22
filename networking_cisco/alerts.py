@@ -17,9 +17,9 @@ import logging
 LOG = logging.getLogger(__name__)
 
 ALERT_PREFIX = 'asr:alert_level:%s message:%s detail:%s'
-ALERT_CRITICAL = 'critical'
-ALERT_WARNING = 'warning'
-ALERT_INFO = 'info'
+ALERT_CRITICAL = 'CRITICAL'
+ALERT_WARNING = 'WARNING'
+ALERT_INFO = 'INFO'
 
 
 
