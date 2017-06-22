@@ -23,8 +23,11 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_cisco import backwards_compatibility as bc
+from networking_cisco import alerts
+
 from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k import (
-    asr1k_snippets as asr_snippets, alerts)
+    asr1k_snippets as asr_snippets)
+
 from networking_cisco.plugins.cisco.common import cisco_constants
 from networking_cisco.plugins.cisco.common.htparser import HTParser
 from networking_cisco.plugins.cisco.extensions import ha
