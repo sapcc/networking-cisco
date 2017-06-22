@@ -392,6 +392,8 @@ class RoutingServiceHelper(object):
             hd_routermapping[router['hosting_device']['id']].append(router)
 
         # call cfg cleanup specific to device type from its driver
+        pool = eventlet.GreenPool()
+
         for hd_id, routers in six.iteritems(hd_routermapping):
             temp_res = {"id": hd_id,
                         "hosting_device": routers[0]['hosting_device'],
@@ -400,8 +402,13 @@ class RoutingServiceHelper(object):
             LOG.debug("Running config sync for hosting device %(hd_id)s that "
                       "should host %(num_r)d routers",
                       {'hd_id': hd_id, 'num_r': len(routers)})
-            driver.cleanup_invalid_cfg(
-                routers[0]['hosting_device'], routers)
+
+            pool.spawn_n(driver.cleanup_invalid_cfg, routers[0]['hosting_device'], routers)
+
+        pool.waitall()
+
+            #driver.cleanup_invalid_cfg(
+            #    routers[0]['hosting_device'], routers)
 
     def _fetch_router_info(self, router_ids=None, device_ids=None,
                            all_routers=False):
