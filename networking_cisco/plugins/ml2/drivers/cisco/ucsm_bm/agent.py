@@ -139,7 +139,7 @@ class _PortInfo(object):
 def for_all_hosts(f):
     six.wraps(f)
     def wrapper(self, *args, **kwds):
-        for ucsm_ip in self.ucsm_conf.get_all_ucsm_ips()
+        for ucsm_ip in self.ucsm_conf.get_all_ucsm_ips():
             with self.ucsm_connect_disconnect(ucsm_ip) as handle:
                 kwds['handle'] = handle
                 yield ucsm_ip, f(self, *args, **kwds)
