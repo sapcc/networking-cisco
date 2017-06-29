@@ -1105,15 +1105,20 @@ class ConfigSyncer(object,alerts.AlertMixin):
     def gw_port_hsrp_ip_check(self, gw_port, ip_addr):
 
         if gw_port is not None:
-            ha_port = gw_port[ha.HA_INFO]['ha_port']
-            for fixed_ip in ha_port['fixed_ips']:
-                target_ip = fixed_ip['ip_address']
-                LOG.info(_LI("target_ip: %(target_ip)s, "
-                             "actual_ip: %(ip_addr)s") %
-                         {'target_ip': target_ip, 'ip_addr': ip_addr})
-                if ip_addr == target_ip:
-                    return True
-            LOG.info(_LI("HSRP VIP mismatch on gw_port, deleting"))
+            ha_info = gw_port.get(ha.HA_INFO)
+            if ha_info is not None:
+                ha_port = ha_info.get('ha_port')
+
+                if ha_port is not None:
+                    for fixed_ip in ha_port['fixed_ips']:
+                        target_ip = fixed_ip['ip_address']
+                        LOG.info(_LI("target_ip: %(target_ip)s, "
+                                     "actual_ip: %(ip_addr)s") %
+                                 {'target_ip': target_ip, 'ip_addr': ip_addr})
+                        if ip_addr == target_ip:
+                            return True
+                LOG.info(_LI("HSRP VIP mismatch on gw_port, deleting"))
+
         return False
 
     def subintf_hsrp_ip_check(self, intf_list, is_external, ip_addr):
