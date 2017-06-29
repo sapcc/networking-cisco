@@ -386,24 +386,32 @@ class RoutingServiceHelper(object):
 
     def _cleanup_invalid_cfg(self, routers):
 
+
+
         # dict with hd id as key and associated routers list as val
         hd_routermapping = collections.defaultdict(list)
+        hds = {}
         for router in routers:
             hd_routermapping[router['hosting_device']['id']].append(router)
+            hds[router['hosting_device']['id']] = router['hosting_device']
 
         # call cfg cleanup specific to device type from its driver
         pool = eventlet.GreenPool()
 
-        for hd_id, routers in six.iteritems(hd_routermapping):
-            temp_res = {"id": hd_id,
-                        "hosting_device": routers[0]['hosting_device'],
-                        "router_type": routers[0]['router_type']}
-            driver = self.driver_manager.set_driver(temp_res)
-            LOG.debug("Running config sync for hosting device %(hd_id)s that "
-                      "should host %(num_r)d routers",
-                      {'hd_id': hd_id, 'num_r': len(routers)})
 
-            pool.spawn_n(driver.cleanup_invalid_cfg, routers[0]['hosting_device'], routers)
+
+        for hd_id, routers in six.iteritems(hd_routermapping):
+            hd = hds.get(hd_id)
+            if hd and hd['status']==c_constants.HD_ACTIVE:
+                temp_res = {"id": hd_id,
+                            "hosting_device": routers[0]['hosting_device'],
+                            "router_type": routers[0]['router_type']}
+                driver = self.driver_manager.set_driver(temp_res)
+                LOG.debug("Running config sync for hosting device %(hd_id)s that "
+                          "should host %(num_r)d routers",
+                          {'hd_id': hd_id, 'num_r': len(routers)})
+
+                pool.spawn_n(driver.cleanup_invalid_cfg, routers[0]['hosting_device'], routers)
 
         pool.waitall()
 
