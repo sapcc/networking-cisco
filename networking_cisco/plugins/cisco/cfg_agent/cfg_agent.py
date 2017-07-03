@@ -188,6 +188,8 @@ class CiscoCfgAgent(manager.Manager):
 
     def after_start(self):
         LOG.info(_LI("Cisco cfg agent started"))
+        if self.routing_service_helper:
+            self.routing_service_helper.collect_active()
 
     def get_routing_service_helper(self):
         return self.routing_service_helper
