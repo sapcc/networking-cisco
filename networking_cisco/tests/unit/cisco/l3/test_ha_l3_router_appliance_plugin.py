@@ -24,7 +24,6 @@ import webob.exc
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron import context
 from neutron.db import l3_db
 from neutron.extensions import extraroute
 from neutron.extensions import l3
@@ -457,7 +456,7 @@ class HAL3RouterApplianceVMTestCase(
                 # ensure that no ha details are included
                 self.assertNotIn(ha.DETAILS, r['router'])
                 r_s = self._show('routers', r['router']['id'],
-                                 neutron_context=context.Context('',
+                                 neutron_context=bc.context.Context('',
                                                                  tenant_id))
                 self.assertTrue(r_s['router'][ha.ENABLED])
                 # ensure that no ha details are included
@@ -471,7 +470,7 @@ class HAL3RouterApplianceVMTestCase(
             # ensure that no ha details are included
             self.assertNotIn(ha.DETAILS, r['router'])
             r_s = self._show('routers', r['router']['id'],
-                             neutron_context=context.Context('', tenant_id))
+                             neutron_context=bc.context.Context('', tenant_id))
             self.assertTrue(r_s['router'][ha.ENABLED])
             # ensure that no ha details are included
             self.assertNotIn(ha.DETAILS, r_s['router'])
@@ -599,7 +598,7 @@ class HAL3RouterApplianceVMTestCase(
             body = {'router': {ha.ENABLED: False}}
             updated_router = self._update(
                 'routers', r['router']['id'], body,
-                neutron_context=context.Context('', tenant_id))
+                neutron_context=bc.context.Context('', tenant_id))
             self._verify_ha_settings(updated_router['router'],
                                      self._get_ha_defaults(ha_enabled=False))
             # verify that the redundancy routers are indeed gone
@@ -628,7 +627,7 @@ class HAL3RouterApplianceVMTestCase(
             body = {'router': {ha.ENABLED: False}}
             updated_router = self._update(
                 'routers', r['router']['id'], body,
-                neutron_context=context.Context('', tenant_id))
+                neutron_context=bc.context.Context('', tenant_id))
             self._verify_ha_settings(updated_router['router'],
                                      self._get_ha_defaults(ha_enabled=False))
             # verify that the redundancy routers are indeed gone
@@ -829,7 +828,7 @@ class HAL3RouterApplianceVMTestCase(
                 with self.port(tenant_id=tenant_id) as p:
                     self._test_enable_ha(
                         s['subnet'], r['router'], p['port'], False,
-                        neutron_context=context.Context('', tenant_id))
+                        neutron_context=bc.context.Context('', tenant_id))
 
     def test_enable_ha_on_non_gw_router_non_admin_succeeds(self):
         tenant_id = _uuid()
@@ -891,7 +890,7 @@ class HAL3RouterApplianceVMTestCase(
                                                 ha.PROBE_INTERVAL: 3}}}
                 self._update('routers', r['router']['id'], body,
                              expected_code=webob.exc.HTTPForbidden.code,
-                             neutron_context=context.Context('', tenant_id))
+                             neutron_context=bc.context.Context('', tenant_id))
                 r_show = self._show('routers', r['router']['id'])
                 self._verify_ha_settings(r_show['router'], ha_settings)
 
@@ -906,7 +905,7 @@ class HAL3RouterApplianceVMTestCase(
                                             ha.PROBE_INTERVAL: 3}}}
             self._update('routers', r['router']['id'], body,
                          expected_code=webob.exc.HTTPForbidden.code,
-                         neutron_context=context.Context('', tenant_id))
+                         neutron_context=bc.context.Context('', tenant_id))
             r_show = self._show('routers', r['router']['id'])
             self._verify_ha_settings(r_show['router'], ha_settings)
 
@@ -1437,21 +1436,13 @@ class HAL3RouterApplianceVMTestCase(
         routes1 = [{'destination': '135.207.0.0/16', 'nexthop': '10.0.1.199'},
                    {'destination': '12.0.0.0/8', 'nexthop': '10.0.1.200'},
                    {'destination': '141.212.0.0/16', 'nexthop': '10.0.1.201'}]
-        routes2 = [{'destination': '155.210.0.0/28', 'nexthop': '11.0.1.199'},
-                   {'destination': '130.238.5.0/24', 'nexthop': '11.0.1.199'}]
         with self.router() as router,\
                 self.subnet(cidr='10.0.1.0/24') as subnet1,\
-                self.subnet(cidr='11.0.1.0/24') as subnet2,\
-                self.port(subnet=subnet1) as port1,\
-                self.port(subnet=subnet2) as port2:
+                self.port(subnet=subnet1) as port1:
             r = router['router']
             p1 = port1['port']
-            p2 = port2['port']
             updated_r = self._routes_update_prepare(r['id'], None, p1['id'],
                                                     routes1)['router']
-            rr1_id = r[ha.DETAILS][ha.REDUNDANCY_ROUTERS][0]['id']
-            updated_rr1 = self._rr_routes_update_prepare(
-                r['id'], None, p2['id'], rr1_id, routes2)['router']
             params = "id=%s" % r[ha.DETAILS][ha.REDUNDANCY_ROUTERS][1]['id']
             routers = self._list('routers', query_params=params)['routers']
             routers.append(updated_r)
@@ -1459,10 +1450,6 @@ class HAL3RouterApplianceVMTestCase(
             for router in routers:
                 self.assertEqual(_sort_routes(router['routes']),
                                  correct_routes1)
-            routes1.extend(routes2)
-            self.assertEqual(_sort_routes(updated_rr1['routes']),
-                             _sort_routes(routes1))
-            self._rr_routes_update_cleanup(p2['id'], None, r['id'], rr1_id, [])
             self._routes_update_cleanup(p1['id'], None, r['id'], [])
 
     def test_router_update_change_name_changes_redundancy_routers(self):
@@ -1492,8 +1479,12 @@ class HAL3RouterApplianceVMTestCase(
             r_routers = self._list('routers', query_params=params)['routers']
             self.assertEqual(2, len(r_routers))
             newName = 'routerOne'
-            r_updated = self._update('routers', r_routers[0]['id'],
-                                     {'router': {'name': newName}})['router']
+            admin_ctx = bc.context.get_admin_context()
+            # We call the plugin function directly rather than calling via the
+            # REST API as the latter would be rejected since it's a router
+            # managed by the L3 router service plugin.
+            r_updated = self.l3_plugin.update_router(
+                admin_ctx, r_routers[0]['id'], {'router': {'name': newName}})
             self.assertEqual(newName, r_updated['name'])
             routers = self._list('routers')['routers']
             # should have no new routers
@@ -1525,7 +1516,7 @@ class HAL3RouterApplianceVMTestCase(
             req = self.new_create_request('subnets', data)
             subnet = self.deserialize(self.fmt, req.get_response(self.api))
 
-            admin_ctx = context.get_admin_context()
+            admin_ctx = bc.context.get_admin_context()
             l3_plugin.add_router_interface(
                 admin_ctx,
                 router['router']['id'], {'subnet_id': subnet['subnet']['id']})
@@ -1583,7 +1574,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                               p['port']['id'])
 
                 routers = self.l3_plugin.get_sync_data(
-                    context.get_admin_context(), None)
+                    bc.context.get_admin_context(), None)
                 self.assertEqual(3, len(routers))
                 for router in routers:
                     interfaces = router[bc.constants.INTERFACE_KEY]
@@ -1611,7 +1602,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                        'subnet_id': subnet['subnet']['id']},
                                       {'ip_address': '9.0.1.200',
                                        'subnet_id': subnet['subnet']['id']}]}}
-                    ctx = context.get_admin_context()
+                    ctx = bc.context.get_admin_context()
                     self.core_plugin.update_port(ctx, p['port']['id'], port)
                     routers = self.l3_plugin.get_sync_data(ctx, None)
                     # One user visible router and two redundancy routers
@@ -1670,7 +1661,7 @@ class L3CfgAgentHARouterApplianceTestCase(
             router_ids = [rr['id']
                           for rr in r[ha.DETAILS][ha.REDUNDANCY_ROUTERS]]
             router_ids.append(r['id'])
-            e_context = context.get_admin_context()
+            e_context = bc.context.get_admin_context()
             routers = self.l3_plugin.get_sync_data_ext(e_context, router_ids)
             self.assertEqual(len(router_ids), len(routers))
             correct_routes = _sort_routes(routes)
@@ -1684,35 +1675,22 @@ class L3CfgAgentHARouterApplianceTestCase(
         routes1 = [{'destination': '135.207.0.0/16', 'nexthop': '10.0.1.199'},
                    {'destination': '12.0.0.0/8', 'nexthop': '10.0.1.200'},
                    {'destination': '141.212.0.0/16', 'nexthop': '10.0.1.201'}]
-        routes2 = [{'destination': '155.210.0.0/28', 'nexthop': '11.0.1.202'},
-                   {'destination': '130.238.5.0/24', 'nexthop': '11.0.1.202'}]
         with self.router() as router,\
                 self.subnet(cidr='10.0.1.0/24') as subnet1,\
-                self.subnet(cidr='11.0.1.0/24') as subnet2,\
-                self.port(subnet=subnet1) as port1,\
-                self.port(subnet=subnet2) as port2:
+                self.port(subnet=subnet1) as port1:
             r = router['router']
             p1 = port1['port']
-            p2 = port2['port']
             self._routes_update_prepare(r['id'], None, p1['id'], r['id'],
                                         routes1)
-            rr1_id = r[ha.DETAILS][ha.REDUNDANCY_ROUTERS][0]['id']
-            self._routes_update_prepare(r['id'], None, p2['id'], rr1_id,
-                                        routes2)
             router_ids = [r['id'],
                           r[ha.DETAILS][ha.REDUNDANCY_ROUTERS][1]['id']]
-            e_context = context.get_admin_context()
+            e_context = bc.context.get_admin_context()
             routers = self.l3_plugin.get_sync_data_ext(e_context, router_ids)
             self.assertEqual(len(router_ids), len(routers))
             correct_routes1 = _sort_routes(routes1)
             for router in routers:
                 self.assertEqual(_sort_routes(router['routes']),
                                  correct_routes1)
-            routers = self.l3_plugin.get_sync_data_ext(e_context, [rr1_id])
-            routes1.extend(routes2)
-            self.assertEqual(_sort_routes(routers[0]['routes']),
-                             _sort_routes(routes1))
-            self._routes_update_cleanup(p2['id'], None, r['id'], rr1_id, [])
             self._routes_update_cleanup(p1['id'], None, r['id'], r['id'], [])
 
     def test_l3_cfg_agent_query_ha_router_with_fips(self):
@@ -1748,7 +1726,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                     fips_dict = {fip1['floatingip']['id']: fip1['floatingip'],
                                  fip2['floatingip']['id']: fip2['floatingip']}
 
-                    e_context = context.get_admin_context()
+                    e_context = bc.context.get_admin_context()
                     query_params = """fixed_ips=ip_address%%3D%s""".strip() % (
                                    '10.0.1.2')
                     gw_port = self._list('ports',
@@ -1927,7 +1905,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                                      p['id'])
                 self.assertIn('port_id', body)
                 self.assertEqual(body['port_id'], p['id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 with mock.patch(
                     'networking_cisco.plugins.cisco.db.l3.ha_db.HA_db_mixin.'
                     '_populate_port_ha_information') as mock_port_ha:
@@ -1948,7 +1926,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                                      p['id'])
                 self.assertIn('port_id', body)
                 self.assertEqual(body['port_id'], p['id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 with mock.patch(
                     'networking_cisco.plugins.cisco.db.l3.ha_db.HA_db_mixin.'
                     '_populate_port_ha_information') as mock_port_ha:
@@ -1969,7 +1947,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                 self._add_external_gateway_to_router(
                     r['id'],
                     s['subnet']['network_id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 with mock.patch(
                     'networking_cisco.plugins.cisco.db.l3.ha_db.HA_db_mixin.'
                     '_populate_port_ha_information') as mock_port_ha:
@@ -1993,7 +1971,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                 self._add_external_gateway_to_router(
                     r['id'],
                     s['subnet']['network_id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 with mock.patch(
                     'networking_cisco.plugins.cisco.db.l3.ha_db.HA_db_mixin.'
                     '_populate_port_ha_information') as mock_port_ha:
@@ -2027,7 +2005,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                                      p['id'])
                 self.assertIn('port_id', body)
                 self.assertEqual(body['port_id'], p['id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 hags = {}
                 mod_itfcs = []
                 hag = self.l3_plugin._get_ha_group_for_subnet_id(
@@ -2050,7 +2028,7 @@ class L3CfgAgentHARouterApplianceTestCase(
                                                      p['id'])
                 self.assertIn('port_id', body)
                 self.assertEqual(body['port_id'], p['id'])
-                adm_ctx = context.get_admin_context()
+                adm_ctx = bc.context.get_admin_context()
                 hags = {}
                 mod_itfcs = []
                 with mock.patch('sqlalchemy.orm.query.Query.one') as m:

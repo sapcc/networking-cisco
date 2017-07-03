@@ -16,23 +16,30 @@ import copy
 import mock
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import uuidutils
+from sqlalchemy.orm import exc as db_exc
 from webob import exc
 
-from neutron import context
 from neutron.extensions import l3
 
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.common import cisco_constants
+from networking_cisco.plugins.cisco.db.l3.l3_router_appliance_db import (
+    L3RouterApplianceDBMixin)
 from networking_cisco.plugins.cisco.extensions import ha
 from networking_cisco.plugins.cisco.extensions import routerhostingdevice
 from networking_cisco.plugins.cisco.extensions import routerrole
 from networking_cisco.plugins.cisco.extensions import routertype
 from networking_cisco.plugins.cisco.extensions import routertypeawarescheduler
+from networking_cisco.plugins.cisco.l3.drivers.asr1k import (
+    asr1k_routertype_driver as drv)
 from networking_cisco.tests.unit.cisco.l3 import (
     test_ha_l3_router_appliance_plugin as cisco_ha_test)
 from networking_cisco.tests.unit.cisco.l3 import (
     test_l3_routertype_aware_schedulers as cisco_test_case)
+
+LOG = logging.getLogger(__name__)
 
 
 _uuid = uuidutils.generate_uuid
@@ -52,6 +59,9 @@ AUXILIARY_GATEWAY_KEY = cisco_constants.AUXILIARY_GATEWAY_KEY
 ROUTER_ROLE_ATTR = routerrole.ROUTER_ROLE_ATTR
 HOSTING_DEVICE_ATTR = routerhostingdevice.HOSTING_DEVICE_ATTR
 AUTO_SCHEDULE_ATTR = routertypeawarescheduler.AUTO_SCHEDULE_ATTR
+
+TestSchedulingL3RouterApplianceExtensionManager = (
+    cisco_test_case.TestSchedulingL3RouterApplianceExtensionManager)
 
 
 class Asr1kRouterTypeDriverTestCase(
@@ -562,8 +572,10 @@ class Asr1kRouterTypeDriverTestCase(
                     ext_net_ids.pop(ext_net_1_id)
                 self._verify_routers(r_ids, ext_net_ids, hd_id, [0, 1])
                 if update_operation is True:
+                    LOG.debug('Update router %s to remove gateway', r2['id'])
                     self._update('routers', r2['id'], r_spec)
                 else:
+                    LOG.debug('Delete router %s', r2['id'])
                     self._delete('routers', r2['id'])
                     r_ids = {}
                 # should have no global router now
@@ -661,6 +673,7 @@ class Asr1kRouterTypeDriverTestCase(
                 if same_ext_net is False:
                     ext_net_ids.pop(msn_ext_net_1_id)
                 self._verify_routers(r_ids, ext_net_ids, hd_id, [0, 1])
+                LOG.debug('Update router %s to remove gateway', r2['id'])
                 self._update('routers', r2['id'], r_spec)
                 # should have no global router now
                 self._verify_routers(r_ids, ext_net_ids)
@@ -677,6 +690,93 @@ class Asr1kRouterTypeDriverTestCase(
     def test_router_update_unset_msn_gw_dt_den(self):
         self._test_router_update_unset_msn_gw(same_tenant=False,
                                               same_ext_net=False)
+
+    def _test_router_update_unset_msn_gw_concurrent(
+            self, delete_global=True, delete_ports=False,
+            delete_logical=False):
+
+        def _concurrent_delete_global_router(local_self, context,
+                                             global_router_id, logical=False):
+            if delete_ports is True:
+                delete_p_fcn(local_self, context, global_router_id)
+            try:
+                if logical is True:
+                    if delete_logical is True:
+                        super(L3RouterApplianceDBMixin,
+                              self.l3_plugin).delete_router(context,
+                                                            global_router_id)
+                else:
+                    if delete_global is True:
+                        self.l3_plugin.delete_router(
+                            context, global_router_id, unschedule=False)
+            except (db_exc.ObjectDeletedError, l3.RouterNotFound) as e:
+                LOG.warning(e)
+            delete_gr_fcn(local_self, context, global_router_id, logical)
+
+        set_context = False
+        tenant_id = _uuid()
+        with self.network(tenant_id=tenant_id) as msn_n_external:
+            msn_ext_net_id = msn_n_external['network']['id']
+            self._set_net_external(msn_ext_net_id)
+            sn_1 = self._make_subnet(
+                self.fmt, msn_n_external, '10.0.1.1', cidr='10.0.1.0/24',
+                tenant_id=tenant_id)['subnet']
+            sn_2 = self._make_subnet(
+                self.fmt, msn_n_external, '20.0.1.1', cidr='20.0.1.0/24',
+                tenant_id=tenant_id)['subnet']
+            ext_gw_subnets = [sn_1['id'], sn_2['id']]
+            ext_net_ids = {msn_ext_net_id: ext_gw_subnets}
+            ext_gw = {
+                'network_id': msn_ext_net_id,
+                'external_fixed_ips': [{'subnet_id': sid}
+                                       for sid in ext_gw_subnets]}
+            with self.router(tenant_id=tenant_id,
+                             external_gateway_info=ext_gw,
+                             set_context=set_context) as router:
+                r = router['router']
+                # backlog processing will trigger one routers_updated
+                # notification containing r1 and r2
+                self.l3_plugin._process_backlogged_routers()
+                r_after = self._show('routers', r['id'])['router']
+                hd_id = r_after[HOSTING_DEVICE_ATTR]
+                r_ids = {r['id']}
+                # should have one global router now
+                self._verify_routers(r_ids, ext_net_ids, hd_id)
+                ext_gw['external_fixed_ips'] = [{'subnet_id': sn_1['id']}]
+                r_spec = {'router': {l3.EXTERNAL_GW_INFO: ext_gw}}
+                r_after_2 = self._update('routers', r['id'], r_spec)['router']
+                res_ips = r_after_2[l3.EXTERNAL_GW_INFO]['external_fixed_ips']
+                self.assertEqual(1, len(res_ips))
+                self.assertEqual(sn_1['id'], res_ips[0]['subnet_id'])
+                # should still have one global router
+                self._verify_routers(r_ids, ext_net_ids, hd_id)
+                # now we simulate that there is another router with similar
+                # gateway that is unset concurrently and that its REST API
+                # thread manages to delete the global router
+                r_spec = {'router': {l3.EXTERNAL_GW_INFO: None}}
+
+                delete_gr_fcn = drv.ASR1kL3RouterDriver._delete_global_router
+                delete_p_fcn = (
+                    drv.ASR1kL3RouterDriver._delete_auxiliary_gateway_ports)
+                with mock.patch(
+                        'networking_cisco.plugins.cisco.l3.drivers.asr1k'
+                        '.asr1k_routertype_driver.ASR1kL3RouterDriver'
+                        '._delete_global_router',
+                        new=_concurrent_delete_global_router):
+                    LOG.debug('Update router %s to remove gateway', r['id'])
+                    self._update('routers', r['id'], r_spec)
+                    # should have no global router now
+                    self._verify_routers(r_ids, ext_net_ids)
+
+    def test_router_update_unset_msn_gw_concurrent_global_delete(self):
+        self._test_router_update_unset_msn_gw_concurrent()
+
+    def test_router_update_unset_msn_gw_concurrent_global_port_delete(self):
+        self._test_router_update_unset_msn_gw_concurrent(delete_ports=True)
+
+    def test_router_update_unset_msn_gw_concurrent_port_delete(self):
+        self._test_router_update_unset_msn_gw_concurrent(delete_global=False,
+                                                         delete_ports=True)
 
     def _test_delete_gateway_router(self, set_context=False, same_tenant=True,
                                     same_ext_net=True):
@@ -1013,9 +1113,19 @@ class L3CfgAgentAsr1kRouterTypeDriverTestCase(
                                              hd_id_ha_backup, ext_net_ids)
         self.assertIn(g_rtr_2['id'], g_l_rtr_rr_ids)
         self.assertFalse(g_rtr_1[ha.ENABLED])
-        e_context = context.get_admin_context()
-        sync_routers = self.l3_plugin.get_sync_data_ext(e_context,
-                                                        g_l_rtr_rr_ids)
+        e_context = bc.context.get_admin_context()
+        incomplete_router_dicts = copy.copy(g_l_rtr_rr_ids)
+        sync_routers = []
+        attempt = 0
+        while incomplete_router_dicts and attempt < 10:
+            incomplete_router_dicts = []
+            new_sync_routers = self.l3_plugin.get_sync_data_ext(e_context,
+                                                                g_l_rtr_rr_ids)
+            for s_r in new_sync_routers:
+                if s_r['status'] != cisco_constants.ROUTER_INFO_INCOMPLETE:
+                    sync_routers.append(s_r)
+                else:
+                    incomplete_router_dicts.append(s_r['id'])
         self.assertEqual(2, len(sync_routers))
         q_p = '%s=%s&%s=%s' % ('device_id', logical_global_router['id'],
                                'device_owner', DEVICE_OWNER_GLOBAL_ROUTER_GW)

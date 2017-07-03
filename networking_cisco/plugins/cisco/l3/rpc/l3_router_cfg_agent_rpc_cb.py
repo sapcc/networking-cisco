@@ -17,7 +17,6 @@ import oslo_messaging
 from oslo_serialization import jsonutils
 import six
 
-from neutron import context as neutron_context
 from neutron.db import api as db_api
 from neutron.extensions import l3
 
@@ -58,7 +57,7 @@ class L3RouterCfgRpcCallback(object):
         @return: a list of routers
                  with their hosting devices, interfaces and floating_ips
         """
-        adm_context = neutron_context.get_admin_context()
+        adm_context = bc.context.get_admin_context()
         try:
             routers = (
                 self._l3plugin.list_active_sync_routers_on_hosting_devices(
@@ -72,7 +71,7 @@ class L3RouterCfgRpcCallback(object):
     # version 1.2 API
     @db_api.retry_db_errors
     def cfg_sync_all_hosted_routers(self, context, host):
-        adm_context = neutron_context.get_admin_context()
+        adm_context = bc.context.get_admin_context()
         try:
             routers = (
                 self._l3plugin.list_all_routers_on_hosting_devices(
@@ -156,6 +155,5 @@ class L3RouterCfgRpcCallback(object):
            @param port_ids: list of ids of all the ports for the given status
            @param status: PORT_STATUS_ACTIVE/PORT_STATUS_DOWN.
         """
-        with context.session.begin(subtransactions=True):
-            self._l3plugin.update_router_port_statuses(context, port_ids,
-                                                       status)
+        self._l3plugin.update_router_port_statuses(context, port_ids,
+                                                   status)

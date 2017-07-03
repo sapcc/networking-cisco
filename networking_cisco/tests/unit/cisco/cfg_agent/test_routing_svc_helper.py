@@ -1046,6 +1046,22 @@ class TestBasicRoutingOperations(
         self.routing_helper._router_removed.assert_any_call(router2['id'])
         self.routing_helper._process_router.assert_called_with(ri1)
 
+    def test_process_routers_skips_routers_on_other_hosting_devices(self):
+        router1, port1 = self.prepare_router_data()
+        r1_id = router1['id']
+        r1_info = routing_svc_helper.RouterInfo(r1_id, router1)
+        router2, port2 = self.prepare_router_data()
+        r2_id = router2['id']
+        self.routing_helper.router_info = {
+            r1_id: r1_info,
+            r2_id: routing_svc_helper.RouterInfo(r2_id, router2)}
+        self.routing_helper._process_router = mock.Mock()
+        self.routing_helper._router_removed = mock.Mock()
+        self.routing_helper._process_routers([router1], [],
+                                             router1['hosting_device']['id'])
+        self.routing_helper._process_router.assert_called_once_with(r1_info)
+        self.assertEqual(0, self.routing_helper._router_removed.call_count)
+
 
 class TestDeviceSyncOperations(base.BaseTestCase):
 
@@ -1150,3 +1166,55 @@ class TestDeviceSyncOperations(base.BaseTestCase):
         self.assertEqual(0,
                          self.routing_helper.sync_devices_attempts)
         self.assertEqual(0, len(self.routing_helper.sync_devices))
+
+    def _test_sync_chunk_size(self, num_routers=10, exception_at=None,
+                              current_chunk_size=None, max_chunk_size=None):
+        def get_routers(context, router_ids):
+            current_call_num = self.call_num
+            self.call_num += 1
+            if current_call_num in exception_at:
+                raise oslo_messaging.MessagingTimeout
+            return [routers[r_id] for r_id in router_ids if
+                    r_id in routers]
+
+        if max_chunk_size is not None:
+            cfg.CONF.set_override('max_device_sync_batch_size', max_chunk_size,
+                                  group='cfg_agent')
+        if current_chunk_size is not None:
+            self.routing_helper.sync_routers_chunk_size = current_chunk_size
+        if exception_at is None:
+            exception_at = []
+        self.call_num = 0
+        self.routing_helper.plugin_rpc = mock.MagicMock()
+        r_ids = [_uuid() for i in range(num_routers)]
+        routers = [{'id': uuid} for uuid in r_ids]
+        self.routing_helper.plugin_rpc.get_router_ids = mock.MagicMock(
+            return_value=r_ids)
+        self.routing_helper.plugin_rpc.get_routers = mock.MagicMock(
+            side_effect=get_routers)
+        return r_ids, routers
+
+    def test_message_timeout_reduces_sync_chunk_size(self):
+        r_ids, routers = self._test_sync_chunk_size(exception_at=[0, 1, 2, 3])
+        self.assertRaises(oslo_messaging.MessagingTimeout,
+                          self.routing_helper._fetch_router_info, r_ids)
+        self.assertEqual(32, self.routing_helper.sync_routers_chunk_size)
+        self.assertRaises(oslo_messaging.MessagingTimeout,
+                          self.routing_helper._fetch_router_info, r_ids)
+        self.assertEqual(16, self.routing_helper.sync_routers_chunk_size)
+        self.assertRaises(oslo_messaging.MessagingTimeout,
+                          self.routing_helper._fetch_router_info, r_ids)
+        self.assertEqual(8, self.routing_helper.sync_routers_chunk_size)
+        self.assertRaises(oslo_messaging.MessagingTimeout,
+                          self.routing_helper._fetch_router_info, r_ids)
+        # should not go below the minimum chunk size
+        self.assertEqual(8, self.routing_helper.sync_routers_chunk_size)
+
+    def test_successful_fetch_increases_sync_chunk_size(self):
+        r_ids, routers = self._test_sync_chunk_size(current_chunk_size=16,
+                                                    max_chunk_size=28)
+        self.routing_helper._fetch_router_info(r_ids)
+        self.assertEqual(24, self.routing_helper.sync_routers_chunk_size)
+        self.routing_helper._fetch_router_info(r_ids)
+        # should not go above the maximum chunkk size
+        self.assertEqual(28, self.routing_helper.sync_routers_chunk_size)

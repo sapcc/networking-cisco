@@ -28,8 +28,6 @@ import six
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
-from neutron.common import utils as common_utils
-from neutron import context as n_context
 
 from neutron_lib import exceptions as n_lib_exc
 
@@ -184,7 +182,7 @@ class RoutingServiceHelper(object):
     def __init__(self, host, conf, cfg_agent):
         self.conf = conf
         self.cfg_agent = cfg_agent
-        self.context = n_context.get_admin_context_without_session()
+        self.context = bc.context.get_admin_context_without_session()
         self.plugin_rpc = CiscoRoutingPluginApi(topics.L3PLUGIN, host)
         self._dev_status = device_status.DeviceStatus()
         self._dev_status.enable_heartbeat = (
@@ -356,37 +354,22 @@ class RoutingServiceHelper(object):
 
     def _cleanup_invalid_cfg(self, routers):
 
-
-
         # dict with hd id as key and associated routers list as val
         hd_routermapping = collections.defaultdict(list)
-        hds = {}
         for router in routers:
             hd_routermapping[router['hosting_device']['id']].append(router)
-            hds[router['hosting_device']['id']] = router['hosting_device']
 
         # call cfg cleanup specific to device type from its driver
-        pool = eventlet.GreenPool()
-
-
-
         for hd_id, routers in six.iteritems(hd_routermapping):
-            hd = hds.get(hd_id)
-            if hd and hd['status']==c_constants.HD_ACTIVE:
-                temp_res = {"id": hd_id,
-                            "hosting_device": routers[0]['hosting_device'],
-                            "router_type": routers[0]['router_type']}
-                driver = self.driver_manager.set_driver(temp_res)
-                LOG.debug("Running config sync for hosting device %(hd_id)s that "
-                          "should host %(num_r)d routers",
-                          {'hd_id': hd_id, 'num_r': len(routers)})
-
-                pool.spawn_n(driver.cleanup_invalid_cfg, routers[0]['hosting_device'], routers)
-
-        pool.waitall()
-
-            #driver.cleanup_invalid_cfg(
-            #    routers[0]['hosting_device'], routers)
+            temp_res = {"id": hd_id,
+                        "hosting_device": routers[0]['hosting_device'],
+                        "router_type": routers[0]['router_type']}
+            driver = self.driver_manager.set_driver(temp_res)
+            LOG.debug("Running config sync for hosting device %(hd_id)s that "
+                      "should host %(num_r)d routers",
+                      {'hd_id': hd_id, 'num_r': len(routers)})
+            driver.cleanup_invalid_cfg(
+                routers[0]['hosting_device'], routers)
 
     def _fetch_router_info(self, router_ids=None, device_ids=None,
                            all_routers=False):
@@ -402,13 +385,13 @@ class RoutingServiceHelper(object):
             if all_routers:
                 LOG.debug('Fetching all routers')
                 router_ids = self.plugin_rpc.get_router_ids(self.context)
-                return self._fetch_router_chunk_data(router_ids)
+                routers = self._fetch_router_chunk_data(router_ids)
 
-            if router_ids:
+            elif router_ids:
                 LOG.debug('Fetching routers: %(r_ids)s', {'r_ids': router_ids})
-                return self._fetch_router_chunk_data(router_ids)
+                routers = self._fetch_router_chunk_data(router_ids)
 
-            if device_ids:
+            elif device_ids:
                 LOG.debug('Fetching routers for hosting devices %(hd_ids)s',
                           {'hd_ids': device_ids})
                 return self.plugin_rpc.get_routers(self.context,
@@ -416,7 +399,7 @@ class RoutingServiceHelper(object):
         except oslo_messaging.MessagingTimeout:
             if self.sync_routers_chunk_size > SYNC_ROUTERS_MIN_CHUNK_SIZE:
                 self.sync_routers_chunk_size = max(
-                    self.sync_routers_chunk_size / 2,
+                    int(round(self.sync_routers_chunk_size / 2)),
                     SYNC_ROUTERS_MIN_CHUNK_SIZE)
                 LOG.warning(_LW('Server failed to return info for routers in '
                                 'required time, decreasing chunk size to: %s'),
@@ -430,9 +413,8 @@ class RoutingServiceHelper(object):
             raise
         except oslo_messaging.MessagingException:
             LOG.exception(_LE("RPC Error in fetching routers from plugin"))
+            self.fullsync = True
             raise n_exc.AbortSyncRouters()
-
-        self.fullsync = True
 
         LOG.debug("Periodic_sync_routers_task successfully completed")
         # adjust chunk size after successful sync
@@ -441,6 +423,7 @@ class RoutingServiceHelper(object):
             self.sync_routers_chunk_size = min(
                 self.sync_routers_chunk_size + SYNC_ROUTERS_MIN_CHUNK_SIZE,
                 cfg.CONF.cfg_agent.max_device_sync_batch_size)
+        return routers
 
     def _fetch_router_chunk_data(self, router_ids=None):
 
@@ -1264,7 +1247,7 @@ class RoutingServiceHelper(object):
         """
         new_routes = ri.router['routes']
         old_routes = ri.routes
-        adds, removes = common_utils.diff_list_of_dict(old_routes,
+        adds, removes = bc.common_utils.diff_list_of_dict(old_routes,
                                                        new_routes)
         for route in adds:
             LOG.debug("Added route entry is '%s'", route)

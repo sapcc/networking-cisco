@@ -853,35 +853,24 @@ class HA_db_mixin(object):
 
     def _populate_port_ha_information(self, context, port, router_id, hag_dbs,
                                       user_router_id, modified_interfaces):
-        #subnet_id = port['fixed_ips'][0]['subnet_id']
-
-        for fixed_ip in port['fixed_ips']:
-
-            subnet_id = fixed_ip['subnet_id']
-
-            LOG.debug('Looking for HA group for router %s, subnet %s',router_id,subnet_id)
-
+        subnet_id = port['fixed_ips'][0]['subnet_id']
+        try:
+            hag_db = hag_dbs[subnet_id]
+        except KeyError:
+            # Oops, the subnet_id was not found. Probably because the DB
+            # insertion of that HA group is still in progress by another
+            # process and has not been committed to the DB yet.
+            # Let's retry a few times to see if the DB entry turns up.
+            LOG.debug('No HA group info for router: %(r_id)s and subnet: '
+                      '%(s_id)s was found when populating HA info for port: '
+                      '%(p_id)s. Will now make additional lookup attempts.',
+                      {'r_id': router_id, 's_id': subnet_id,
+                       'p_id': port['id']})
             try:
-                hag_db = hag_dbs[subnet_id]
-            except KeyError:
-                # Oops, the subnet_id was not found. Probably because the DB
-                # insertion of that HA group is still in progress by another
-                # process and has not been committed to the DB yet.
-                # Let's retry a few times to see if the DB entry turns up.
-                LOG.debug('No HA group info for router: %(r_id)s and subnet: '
-                          '%(s_id)s was found when populating HA info for port: '
-                          '%(p_id)s. Will now make additional lookup attempts.',
-                          {'r_id': router_id, 's_id': subnet_id,
-                           'p_id': port['id']})
-                try:
-                    hag_db = self._get_ha_group_for_subnet_id(context, router_id,
-                                                              subnet_id)
-                except exc.NoResultFound:
-                    hag_db = None
-            if hag_db is not None:
-                break
-
-
+                hag_db = self._get_ha_group_for_subnet_id(context, router_id,
+                                                          subnet_id)
+            except exc.NoResultFound:
+                hag_db = None
         if hag_db is None:
             LOG.debug('Failed to fetch the HA group info for for router: '
                       '%(r_id)s and subnet: %(s_id)s. Giving up. No HA '

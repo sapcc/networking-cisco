@@ -31,7 +31,6 @@ from oslo_utils import excutils
 from networking_cisco import backwards_compatibility as bc
 
 from neutron.common import utils as neutron_utils
-from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 
 if bc.NEUTRON_VERSION <= bc.NEUTRON_NEWTON_VERSION:
@@ -50,6 +49,9 @@ from networking_cisco.plugins.ml2.drivers.cisco.nexus import (
     exceptions as excep)
 from networking_cisco.plugins.ml2.drivers.cisco.nexus import (
     nexus_db_v2 as nxos_db)
+from networking_cisco.plugins.ml2.drivers.cisco.nexus import (
+    nexus_helpers as nexus_help)
+
 
 LOG = logging.getLogger(__name__)
 
@@ -75,7 +77,8 @@ class CiscoNexusCfgMonitor(object):
             # this initialization occurs later for replay case
             if not self._mdriver.is_replay_enabled():
                 try:
-                    self._initialize_trunk_interfaces_to_none(switch_ip)
+                    self._initialize_trunk_interfaces_to_none(
+                        switch_ip, replay=False)
                 except Exception:
                     pass
 
@@ -90,20 +93,22 @@ class CiscoNexusCfgMonitor(object):
            const.NEXUS_TYPE_INVALID):
             self._mdriver.set_switch_nexus_type(switch_ip, nexus_type)
 
-    def _initialize_trunk_interfaces_to_none(self, switch_ip):
+    def _initialize_trunk_interfaces_to_none(self, switch_ip, replay=True):
         """Initialize all nexus interfaces to trunk allowed none."""
 
         try:
             # The following determines if the switch interfaces are
             # in place.  If so, make sure they have a basic trunk
             # configuration applied to none.
-            switch_ifs = self._mdriver._get_switch_interfaces(switch_ip)
+            switch_ifs = self._mdriver._get_switch_interfaces(
+                switch_ip, cfg_only=(False if replay else True))
             if not switch_ifs:
                 LOG.debug("Skipping switch %s which has no configured "
                           "interfaces",
                           switch_ip)
                 return
-            self._driver.initialize_all_switch_interfaces(switch_ifs)
+            self._driver.initialize_all_switch_interfaces(
+                switch_ifs, switch_ip)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.warning(_LW("Unable to initialize interfaces to "
@@ -111,22 +116,6 @@ class CiscoNexusCfgMonitor(object):
                             {'switch_ip': switch_ip})
                 self._mdriver.register_switch_as_inactive(switch_ip,
                     'replay init_interface')
-
-        # Only baremetal transactions will have these Reserved
-        # port entries.  If found, determine if there's a change
-        # then change dependent port bindings.
-        for switch_ip, intf_type, port, is_native, ch_grp in switch_ifs:
-            try:
-                reserved = nxos_db.get_reserved_port_binding(
-                                switch_ip,
-                                self._mdriver.format_interface_name(
-                                    intf_type, port))
-            except excep.NexusPortBindingNotFound:
-                continue
-            if reserved[0].channel_group != ch_grp:
-                self._mdriver._change_baremetal_interfaces(
-                    switch_ip, intf_type, port,
-                    reserved[0].channel_group, ch_grp)
 
         # When replay not enabled, this is call early during initialization.
         # To prevent bogus ssh handles from being copied to child processes,
@@ -295,6 +284,37 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                       conf.cfg.CONF.ml2_cisco.nexus_driver)
             raise SystemExit(1)
 
+    def _initialize_vpc_alloc_pools(self):
+        for switch_ip, attr in self._nexus_switches:
+            if str(attr) == const.VPCPOOL:
+                try:
+                    countvpc, minvpc, maxvpc = (
+                        nxos_db.get_switch_vpc_count_min_max(
+                            switch_ip)
+                    )
+                except excep.NexusVPCAllocNotFound:
+                    countvpc = 0
+                value = self._nexus_switches.get((switch_ip, attr))
+                vpc_range = value.split(',')
+                if len(vpc_range) != 2:
+                    raise excep.NexusVPCAllocIncorrectArgCount(
+                        count=len(vpc_range), content=value)
+
+                fromvpc = int(vpc_range[0])
+                tovpc = int(vpc_range[1])
+                count = tovpc - fromvpc + 1
+                if countvpc == 0:
+                    nxos_db.init_vpc_entries(switch_ip, fromvpc, tovpc)
+                elif (countvpc != count or minvpc != fromvpc or
+                     maxvpc != tovpc):
+                    LOG.warning(_LW("Cannot resize switch vpc_pool config "
+                                 "from %(today)d to %(chg)d entries nor from "
+                                 "%(from)d and to %(to)d values. Ignoring "
+                                 "config change for switch %(ip)s."),
+                                 {'today': countvpc, 'chg': count,
+                                 'from': fromvpc, 'to': tovpc,
+                                 'ip': switch_ip})
+
     def initialize(self):
         # Create ML2 device dictionary from ml2_conf.ini entries.
         conf.ML2MechCiscoConfig()
@@ -307,6 +327,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         self._switch_state = {}
 
         self.driver = self._load_nexus_cfg_driver()
+        self._initialize_vpc_alloc_pools()
 
         # This method is only called once regardless of number of
         # api/rpc workers defined.
@@ -323,52 +344,6 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         # Start the monitor thread
         if self.is_replay_enabled():
             eventlet.spawn_after(DELAY_MONITOR_THREAD, self._monitor_thread)
-
-    def format_interface_name(self, intf_type, port, ch_grp=0):
-        """Method to format interface name given type, port.
-
-        Given interface type, port, and channel-group, this
-        method formats an interface name.  If channel-group is
-        non-zero, then port-channel is configured.
-
-        :param intf_type: Such as 'ethernet' or 'port-channel'
-        :param port: unique identification -- 1/32 or 1
-        :ch_grp: If non-zero, ignore other params and format
-                 port-channel<ch_grp>
-        :returns: the full formatted interface name.
-                  ex: ethernet:1/32, port-channel:1
-        """
-        if ch_grp > 0:
-            return 'port-channel:%s' % str(ch_grp)
-
-        return '%s:%s' % (intf_type, port)
-
-    def split_interface_name(self, interface, ch_grp=0):
-        """Method to split interface type, id from name.
-
-        Takes an interface name or just interface suffix
-        and returns interface type and number separately.
-
-        :param interface: interface name or just suffix
-        :param ch_grp: if non-zero, ignore interface
-                       name and return 'port-channel' grp
-        :returns: interface type like 'ethernet'
-        :returns: returns suffix to interface name
-        """
-
-        interface = interface.lower()
-        if ch_grp != 0:
-            intf_type = 'port-channel'
-            port = str(ch_grp)
-        elif ':' in interface:
-            intf_type, port = interface.split(':')
-        elif interface.startswith('ethernet'):
-            interface = interface.replace(" ", "")
-            _, intf_type, port = interface.partition('ethernet')
-        else:
-            intf_type, port = 'ethernet', interface
-
-        return intf_type, port
 
     def is_replay_enabled(self):
         return conf.cfg.CONF.ml2_cisco.switch_heartbeat_time > 0
@@ -527,7 +502,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         switch_connections = []
         try:
             bindings = nxos_db.get_reserved_switch_binding()
-        except excep.NexusPortBindingNotFound:
+        except excep.NexusHostMappingNotFound:
             LOG.error(_LE("No switch bindings in the port data base"))
             bindings = []
         for switch in bindings:
@@ -546,6 +521,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                 port['device_owner'].startswith('manila') or
                 port['device_owner'] in [
                     bc.constants.DEVICE_OWNER_DHCP,
+                    bc.constants.DEVICE_OWNER_ROUTER_INTF,
+                    bc.constants.DEVICE_OWNER_ROUTER_GW,
                     bc.constants.DEVICE_OWNER_ROUTER_HA_INTF])
 
     def _is_status_active(self, port):
@@ -564,8 +541,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
            are provided in the port transaction. In this
            case the VNIC_TYPE is 'baremetal'.
         """
-        return (port[portbindings.VNIC_TYPE] ==
-                portbindings.VNIC_BAREMETAL)
+        return (port[bc.portbindings.VNIC_TYPE] ==
+                bc.portbindings.VNIC_BAREMETAL)
 
     def _get_baremetal_switch_info(self, link_info):
         """Get switch_info dictionary from context."""
@@ -589,10 +566,10 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         if not self._is_baremetal(port):
             return False
 
-        if portbindings.PROFILE not in port:
+        if bc.portbindings.PROFILE not in port:
             return False
 
-        profile = port[portbindings.PROFILE]
+        profile = port[bc.portbindings.PROFILE]
 
         if 'local_link_information' not in profile:
             return False
@@ -628,7 +605,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
             if (segment[api.NETWORK_TYPE] == p_const.TYPE_VLAN and
                 segment[api.SEGMENTATION_ID]):
                 context.set_binding(segment[api.ID],
-                    portbindings.VIF_TYPE_OTHER,
+                    bc.portbindings.VIF_TYPE_OTHER,
                     {},
                     status=bc.constants.PORT_STATUS_ACTIVE)
                 selected = True
@@ -645,18 +622,6 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         return selected
 
-    def _gather_configured_ports(self, switch_ip, attr, host_list):
-        """Get all interfaces originally from ml2_conf_cisco files."""
-
-        for port_id in (
-            self._nexus_switches[switch_ip, attr].split(',')):
-            intf_type, port = self.split_interface_name(port_id)
-
-            # is_native set to const.NOT_NATIVE for
-            # VNIC_TYPE of normal
-            host_list.append((switch_ip, intf_type, port,
-                const.NOT_NATIVE))
-
     def _get_baremetal_switches(self, port):
         """Get switch ip addresses from baremetal transaction.
 
@@ -670,7 +635,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         all_switches = set()
         active_switches = set()
-        all_link_info = port[portbindings.PROFILE]['local_link_information']
+        all_link_info = port[bc.portbindings.PROFILE]['local_link_information']
         for link_info in all_link_info:
             switch_info = self._get_baremetal_switch_info(link_info)
             if not switch_info:
@@ -707,11 +672,11 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         connections = []
 
-        all_link_info = port[portbindings.PROFILE]['local_link_information']
+        all_link_info = port[bc.portbindings.PROFILE]['local_link_information']
         for link_info in all_link_info:
 
             # Extract port info
-            intf_type, port = self.split_interface_name(
+            intf_type, port = nexus_help.split_interface_name(
                                   link_info['port_id'])
 
             # Determine if this switch is to be skipped
@@ -734,23 +699,26 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                 is_native = switch_info['is_native']
             else:
                 is_native = const.NOT_NATIVE
+            ch_grp = 0
             if not from_segment:
                 try:
-                    reserved = nxos_db.get_reserved_port_binding(
+                    reserved = nxos_db.get_switch_if_host_mappings(
                         switch_ip,
-                        self.format_interface_name(
+                        nexus_help.format_interface_name(
                             intf_type, port))
-                    if reserved[0].channel_group > 0:
-                        intf_type, port = self.split_interface_name(
-                            '', reserved[0].channel_group)
-                except excep.NexusPortBindingNotFound:
+                    if reserved[0].ch_grp > 0:
+                        ch_grp = reserved[0].ch_grp
+                        intf_type, port = nexus_help.split_interface_name(
+                            '', ch_grp)
+                except excep.NexusHostMappingNotFound:
                     pass
 
-            connections.append((switch_ip, intf_type, port, is_native))
+            connections.append((switch_ip, intf_type, port,
+                                is_native, ch_grp))
 
         return connections
 
-    def _change_baremetal_interfaces(self, switch_ip, intf_type,
+    def _change_baremetal_interfaces(self, host_id, switch_ip, intf_type,
                                     port, old_ch_grp, ch_grp):
         """Restart detected port channel change. Update database.
 
@@ -783,11 +751,11 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
             return
 
         # Get all bindings to this switch interface
-        reserved_port_id = self.format_interface_name(
+        reserved_port_id = nexus_help.format_interface_name(
                                intf_type, port)
-        old_port_id = self.format_interface_name(
+        old_port_id = nexus_help.format_interface_name(
                           intf_type, port, old_ch_grp)
-        new_port_id = self.format_interface_name(
+        new_port_id = nexus_help.format_interface_name(
                           intf_type, port, ch_grp)
 
         # Get all port instances related to this switch interface
@@ -826,7 +794,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
             except Exception:
                 LOG.error(_LE("Failed to remove port %(port)s"
                     "vlan %(vlan)d vni %(vni)d "
-                    "switch_ip %(ip), instance %(id)s"),
+                    "switch_ip %(ip)s, instance %(id)s"),
                     {'port': old_port_id,
                     'vlan': row.vlan_id,
                     'vni': row.vni,
@@ -835,7 +803,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                 continue
 
         # Update the reserved port binding with new channel group
-        nxos_db.update_reserved_port_binding(
+        nxos_db.update_host_mapping(
+                host_id,
                 switch_ip,
                 reserved_port_id,
                 ch_grp)
@@ -871,35 +840,40 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         connections = self._get_baremetal_connections(
                           port_seg, False, True)
-        for switch_ip, intf_type, port, is_native in connections:
+        for switch_ip, intf_type, port, is_native, _ in connections:
             try:
-                reserved = nxos_db.get_reserved_port_binding(
+                reserved = nxos_db.get_switch_if_host_mappings(
                                switch_ip,
-                               self.format_interface_name(
+                               nexus_help.format_interface_name(
                                    intf_type, port))
                 reserved_exists.append(
                     (switch_ip, intf_type, port, is_native,
-                    reserved[0].channel_group))
-            except excep.NexusPortBindingNotFound:
+                    reserved[0].ch_grp))
+            except excep.NexusHostMappingNotFound:
                 if self.is_switch_active(switch_ip):
                     # channel-group added later
                     list_to_init.append(
-                        (switch_ip, intf_type, port, is_native))
+                        (switch_ip, intf_type, port, is_native, 0))
                 else:
                     inactive_switch.append(
                         (switch_ip, intf_type, port, is_native, 0))
 
         # channel_group is appended to tuples in list_to_init
-        self.driver.initialize_all_switch_interfaces(list_to_init)
+        self.driver.initialize_baremetal_switch_interfaces(list_to_init)
+
+        host_id = port_seg.get('dns_name')
+        if host_id is None:
+            host_id = const.RESERVED_PORT_HOST_ID
 
         # Add inactive list to list_to_init to create RESERVED
         # port data base entries
         list_to_init += inactive_switch
         for switch_ip, intf_type, port, is_native, ch_grp in list_to_init:
-            nxos_db.add_reserved_port_binding(
+            nxos_db.add_host_mapping(
+                host_id,
                 switch_ip,
-                self.format_interface_name(intf_type, port),
-                ch_grp)
+                nexus_help.format_interface_name(intf_type, port),
+                ch_grp, False)
 
         device_id = port_seg.get('device_id')
         vlan_id = segment.get(api.SEGMENTATION_ID)
@@ -910,7 +884,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         # port_binding data base entries
         list_to_init += reserved_exists
         for switch_ip, intf_type, port, is_native, ch_grp in list_to_init:
-            port_id = self.format_interface_name(intf_type, port, ch_grp)
+            port_id = nexus_help.format_interface_name(
+                intf_type, port, ch_grp)
             try:
                 nxos_db.get_nexusport_binding(
                     port_id, vlan_id, switch_ip, device_id)
@@ -936,11 +911,15 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         all_switches = set()
         active_switches = set()
-        for switch_ip, attr in self._nexus_switches:
-            if str(attr) == str(host_id):
-                all_switches.add(switch_ip)
-                if self.is_switch_active(switch_ip):
-                    active_switches.add(switch_ip)
+
+        try:
+            host_list = nxos_db.get_host_mappings(host_id)
+            for mapping in host_list:
+                all_switches.add(mapping.switch_ip)
+                if self.is_switch_active(mapping.switch_ip):
+                    active_switches.add(mapping.switch_ip)
+        except excep.NexusHostMappingNotFound:
+            pass
 
         return list(all_switches), list(active_switches)
 
@@ -961,14 +940,22 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         host_found = False
         host_connections = []
-        for switch_ip, attr in self._nexus_switches:
-            if str(attr) == str(host_id):
-                host_found = True
-                if (only_active_switch and
-                    not self.is_switch_active(switch_ip)):
-                    continue
-                self._gather_configured_ports(
-                    switch_ip, attr, host_connections)
+        try:
+            host_ifs = nxos_db.get_host_mappings(host_id)
+        except excep.NexusHostMappingNotFound:
+            host_ifs = []
+        for ifs in host_ifs:
+            host_found = True
+            if (only_active_switch and
+                not self.is_switch_active(ifs.switch_ip)):
+                continue
+            intf_type, port = nexus_help.split_interface_name(
+                ifs.if_id, ifs.ch_grp)
+            # is_native set to const.NOT_NATIVE for
+            # VNIC_TYPE of normal
+            host_connections.append((
+                ifs.switch_ip, intf_type, port,
+                const.NOT_NATIVE, ifs.ch_grp))
 
         if not host_found:
             LOG.warning(HOST_NOT_FOUND, host_id)
@@ -977,22 +964,23 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
     def _get_port_connections(self, port, host_id,
                               only_active_switch=False):
-        if host_id:
-            return self._get_host_connections(
-                       host_id, only_active_switch)
-        else:
+        if self._is_baremetal(port):
             return self._get_baremetal_connections(
                        port, only_active_switch)
+        else:
+            return self._get_host_connections(
+                       host_id, only_active_switch)
 
     def _get_active_port_connections(self, port, host_id):
         return self._get_port_connections(port, host_id, True)
 
-    def _get_known_baremetal_interfaces(self, requested_switch_ip):
-        """Get known baremetal interfaces from reserved DB.
+    def _get_switch_interfaces(self, requested_switch_ip, cfg_only=False):
+        """Get switch interfaces from host mapping DB.
 
-        For a given switch, this returns all known RESERVED port
-        interfaces.  These have been learned from received
-        baremetal transactions.
+        For a given switch, this returns all known port
+        interfaces for a given switch.  These have been
+        learned from received baremetal transactions and
+        from configuration file.
 
         :param requested_switch_ip: switch_ip
         :returns: list of switch_ip, intf_type, port_id, is_native
@@ -1001,57 +989,20 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         switch_ifs = []
 
         try:
-            port_info = nxos_db.get_reserved_port_binding(
+            port_info = nxos_db.get_switch_host_mappings(
                             requested_switch_ip)
-        except excep.NexusPortBindingNotFound:
+        except excep.NexusHostMappingNotFound:
             port_info = []
 
         for binding in port_info:
-            intf_type, port = self.split_interface_name(
-                                  binding.port_id)
+            if cfg_only and not binding.is_static:
+                continue
+            intf_type, port = nexus_help.split_interface_name(
+                                  binding.if_id)
             switch_ifs.append(
                 (requested_switch_ip, intf_type, port,
-                binding.is_native))
+                const.NOT_NATIVE, binding.ch_grp))
         return switch_ifs
-
-    def _get_config_switch_interfaces(self, requested_switch_ip):
-        """Identify host entries to get interfaces.
-
-        For a given switch, this returns all known configured port
-        interfaces.  These configured in the ml2_conf.ini file.
-
-        :param requested_switch_ip: switch_ip
-        :returns: list of switch_ip, intf_type, port_id, is_native
-        """
-
-        switch_ifs = []
-        defined_attributes = [const.USERNAME, const.PASSWORD, const.SSHPORT,
-                              'physnet', 'nve_src_intf']
-        for switch_ip, attr in self._nexus_switches:
-            # if not in clearly defined attribute, it must be a host
-            # with it's listed interfaces
-            if (switch_ip == requested_switch_ip and
-                str(attr) not in defined_attributes):
-                self._gather_configured_ports(
-                    switch_ip, attr, switch_ifs)
-
-        return switch_ifs
-
-    def _get_switch_interfaces(self, requested_switch_ip):
-        """Get known baremetal and config interfaces.
-
-        For a given switch, return known configured and baremetal
-        interfaces.
-
-        :param requested_switch_ip: switch_ip
-        :returns: list of switch_ip, intf_type, port_id, is_native
-        """
-
-        all_switch_ifs = self._get_config_switch_interfaces(
-                             requested_switch_ip)
-        all_switch_ifs += self._get_known_baremetal_interfaces(
-                              requested_switch_ip)
-        return all_switch_ifs
 
     def get_switch_ips(self):
         switch_connections = []
@@ -1062,15 +1013,19 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         return switch_connections
 
     def _get_switch_nve_info(self, host_id):
-        host_nve_connections = []
-        for switch_ip, attr in self._nexus_switches:
-            if str(attr) == str(host_id):
-                host_nve_connections.append(switch_ip)
+        host_nve_connections = set()
+        try:
+            host_data = nxos_db.get_host_mappings(host_id)
+        except excep.NexusHostMappingNotFound:
+            host_data = []
+        for host in host_data:
+            if host.is_static:
+                host_nve_connections.add(host.switch_ip)
 
         if not host_nve_connections:
             LOG.warning(HOST_NOT_FOUND, host_id)
 
-        return host_nve_connections
+        return sorted(host_nve_connections)
 
     def _configure_nve_db(self, vni, device_id, mcast_group, host_id):
         """Create the nexus NVE database entry.
@@ -1086,7 +1041,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
     def get_nve_loopback(self, switch_ip):
         return self._nexus_switches.get(
-            (switch_ip, 'nve_src_intf'), '0')
+            (switch_ip, const.NVE_SRC_INTF), '0')
 
     def _configure_nve_member(self, vni, device_id, mcast_group, host_id):
         """Add "member vni" configuration to the NVE interface.
@@ -1148,8 +1103,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         Called during update precommit port event.
         """
         host_connections = self._get_port_connections(port, host_id)
-        for switch_ip, intf_type, nexus_port, is_native in host_connections:
-            port_id = self.format_interface_name(intf_type, nexus_port)
+        for switch_ip, intf_type, nexus_port, is_native, _ in host_connections:
+            port_id = nexus_help.format_interface_name(intf_type, nexus_port)
             try:
                 nxos_db.get_nexusport_binding(port_id, vlan_id, switch_ip,
                                               device_id)
@@ -1265,7 +1220,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                              port, native_vlan):
         """Restores a set of vlans for a given port."""
 
-        intf_type, nexus_port = self.split_interface_name(port)
+        intf_type, nexus_port = nexus_help.split_interface_name(port)
 
         # If native_vlan is configured, this is isolated since
         # two configs (native + trunk) must be sent for this vlan only.
@@ -1349,7 +1304,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         vlan_already_created = []
         starttime = time.time()
 
-        for switch_ip, intf_type, nexus_port, is_native in connections:
+        for switch_ip, intf_type, nexus_port, is_native, _ in connections:
 
             all_bindings = nxos_db.get_nexusvlan_binding(vlan_id, switch_ip)
             previous_bindings = [row for row in all_bindings
@@ -1535,6 +1490,55 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         except excep.NexusPortBindingNotFound:
             return
 
+    def _delete_port_channel_resources(self, host_id, switch_ip,
+                                       intf_type, nexus_port, port_id):
+        '''This determines if port channel id needs to be freed.'''
+
+        # if this connection is not a port-channel, nothing to do.
+        if intf_type != 'port-channel':
+            return
+
+        # Check if this driver created it and its no longer needed.
+        try:
+            vpc = nxos_db.get_switch_vpc_alloc(
+                switch_ip, nexus_port)
+        except excep.NexusVPCAllocNotFound:
+            # This can occur for non-baremetal configured
+            # port-channels.  Nothing more to do.
+            return
+
+        # if this isn't one which was allocated or learned,
+        # don't do any further processing.
+        if not vpc.active:
+            return
+
+        # Is this port-channel still in use?
+        # If so, nothing more to do.
+        try:
+            nxos_db.get_nexus_switchport_binding(port_id, switch_ip)
+            return
+        except excep.NexusPortBindingNotFound:
+            pass
+
+        # need to get ethernet interface name
+        try:
+            mapping = nxos_db.get_switch_and_host_mappings(
+                host_id, switch_ip)
+            eth_type, eth_port = nexus_help.split_interface_name(
+                mapping[0].if_id)
+        except excep.NexusHostMappingNotFound:
+            return
+
+        # Remove the channel group from ethernet interface
+        # and remove port channel from this switch.
+        if not vpc.learned:
+            self.driver.delete_ch_grp_to_interface(
+                switch_ip, eth_type, eth_port,
+                nexus_port)
+            self.driver.delete_port_channel(switch_ip,
+                nexus_port)
+        nxos_db.free_vpcid_for_switch(nexus_port, switch_ip)
+
     def _delete_switch_entry(self, port, vlan_id, device_id, host_id, vni,
                              is_provider_vlan):
         """Delete the nexus switch entry.
@@ -1544,17 +1548,18 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         Called during delete postcommit port event.
         """
+
         connections = self._get_active_port_connections(port, host_id)
 
         # (nexus_port,switch_ip) will be unique in each iteration.
         # But switch_ip will repeat if host has >1 connection to same switch.
         # So track which switch_ips already have vlan removed in this loop.
         vlan_already_removed = []
-        for switch_ip, intf_type, nexus_port, is_native in connections:
+        for switch_ip, intf_type, nexus_port, is_native, _ in connections:
 
             # if there are no remaining db entries using this vlan on this
             # nexus switch port then remove vlan from the switchport trunk.
-            port_id = self.format_interface_name(intf_type, nexus_port)
+            port_id = nexus_help.format_interface_name(intf_type, nexus_port)
             auto_create = True
             auto_trunk = True
             if is_provider_vlan:
@@ -1585,6 +1590,29 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                         self.driver.delete_vlan(switch_ip, vlan_id)
                         vlan_already_removed.append(switch_ip)
 
+            self._delete_port_channel_resources(
+                host_id, switch_ip, intf_type, nexus_port, port_id)
+
+        if self._is_baremetal(port):
+            connections = self._get_baremetal_connections(
+                port, False, True)
+            for switch_ip, intf_type, nexus_port, is_native, _ in connections:
+                if_id = nexus_help.format_interface_name(
+                    intf_type, nexus_port)
+                try:
+                    mapping = nxos_db.get_switch_if_host_mappings(
+                        switch_ip, if_id)
+                    ch_grp = mapping[0].ch_grp
+                except excep.NexusHostMappingNotFound:
+                    ch_grp = 0
+                bind_port_id = nexus_help.format_interface_name(
+                    intf_type, nexus_port, ch_grp)
+                binding = nxos_db.get_port_switch_bindings(
+                    bind_port_id,
+                    switch_ip)
+                if not binding:
+                    nxos_db.remove_host_mapping(if_id, switch_ip)
+
     def _is_segment_nexus_vxlan(self, segment):
         return segment[api.NETWORK_TYPE] == const.TYPE_NEXUS_VXLAN
 
@@ -1599,8 +1627,8 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
     def _is_vm_migrating(self, context, vlan_segment, orig_vlan_segment):
         if not vlan_segment and orig_vlan_segment:
-            return (context.current.get(portbindings.HOST_ID) !=
-                    context.original.get(portbindings.HOST_ID))
+            return (context.current.get(bc.portbindings.HOST_ID) !=
+                    context.original.get(bc.portbindings.HOST_ID))
 
     def _log_missing_segment(self):
         LOG.warning(_LW("Nexus: Segment is None, Event not processed."))
@@ -1631,12 +1659,10 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
             return
 
         device_id = port.get('device_id')
-        # No host_id is another indicator this is a baremetal
-        # transaction
         if self._is_baremetal(port):
-            host_id = ''
+            host_id = port.get('dns_name')
         else:
-            host_id = port.get(portbindings.HOST_ID)
+            host_id = port.get(bc.portbindings.HOST_ID)
         vlan_id = segment.get(api.SEGMENTATION_ID)
         # TODO(rpothier) Add back in provider segment support.
         is_provider = False
@@ -1662,7 +1688,7 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
 
         device_id = port.get('device_id')
         mcast_group = segment.get(api.PHYSICAL_NETWORK)
-        host_id = port.get(portbindings.HOST_ID)
+        host_id = port.get(bc.portbindings.HOST_ID)
         vni = segment.get(api.SEGMENTATION_ID)
 
         if vni and device_id and mcast_group and host_id:
@@ -1715,11 +1741,10 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
         port = context.current
         if self._is_supported_deviceowner(port):
             if self._is_baremetal(context.current):
-                host_id = ''
                 all_switches, active_switches = (
                     self._get_baremetal_switches(context.current))
             else:
-                host_id = context.current.get(portbindings.HOST_ID)
+                host_id = context.current.get(bc.portbindings.HOST_ID)
                 all_switches, active_switches = (
                     self._get_host_switches(host_id))
 
@@ -1804,11 +1829,10 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
                     # operation should not be done in precommit.
                     self._init_baremetal_trunk_interfaces(
                         context.current, vlan_segment, 0)
-                    host_id = ''
                     all_switches, active_switches = (
                         self._get_baremetal_switches(context.current))
                 else:
-                    host_id = context.current.get(portbindings.HOST_ID)
+                    host_id = context.current.get(bc.portbindings.HOST_ID)
                     all_switches, active_switches = (
                         self._get_host_switches(host_id))
                 # if switches not active but host_id is valid
@@ -1867,15 +1891,16 @@ class CiscoNexusMechanismDriver(api.MechanismDriver):
             if self._is_segment_nexus_vxlan(segment):
 
                 # Find physical network setting for this host.
-                host_id = context.current.get(portbindings.HOST_ID)
+                host_id = context.current.get(bc.portbindings.HOST_ID)
                 host_connections = self._get_port_connections(
                                        context.current,
                                        host_id)
                 if not host_connections:
                     return
 
-                for switch_ip, attr2, attr3, attr4 in host_connections:
-                    physnet = self._nexus_switches.get((switch_ip, 'physnet'))
+                for switch_ip, _, _, _, _ in host_connections:
+                    physnet = self._nexus_switches.get(
+                        (switch_ip, const.PHYSNET))
                     if physnet:
                         break
                 else:

@@ -14,7 +14,6 @@
 
 import eventlet
 
-from neutron import context as n_context
 from neutron.db import models_v2
 from neutron.extensions import providernet as pr_net
 from neutron_lib import exceptions as n_exc
@@ -101,13 +100,13 @@ class N1kvML2TrunkingPlugDriver(plug.PluginSidePluggingDriver,
         if p_type == 'net_profile':
             plugin = bc.get_plugin(constants.CISCO_N1KV_NET_PROFILE)
             profiles = plugin.get_network_profiles(
-                n_context.get_admin_context(),
+                bc.context.get_admin_context(),
                 {'tenant_id': [tenant_id], 'name': [name]},
                 ['id'])
         else:
             plugin = bc.get_plugin(constants.CISCO_N1KV)
             profiles = plugin.get_policy_profiles(
-                n_context.get_admin_context(),
+                bc.context.get_admin_context(),
                 {'tenant_id': [tenant_id], 'name': [name]},
                 ['id'])
         if len(profiles) == 1:
@@ -275,7 +274,7 @@ class N1kvML2TrunkingPlugDriver(plug.PluginSidePluggingDriver,
             except exception_type:
                 resource_ids.remove(item_id)
             except n_exc.NeutronException as e:
-                LOG.error(_LE('Failed to delete %(resource_name) %(net_id)s '
+                LOG.error(_LE('Failed to delete %(resource_name)s %(net_id)s '
                               'for service vm due to %(err)s'),
                           {'resource_name': name, 'net_id': item_id, 'err': e})
 

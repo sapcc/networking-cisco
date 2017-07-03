@@ -94,3 +94,35 @@ class NexusMcastGroup(bc.model_base.BASEV2, bc.model_base.HasId):
                                    'ml2_nexus_vxlan_allocations.vxlan_vni',
                                    ondelete="CASCADE"),
                                nullable=False)
+
+
+class NexusHostMapping(bc.model_base.BASEV2):
+
+    """Nexus Host to interface Mapping."""
+
+    __tablename__ = 'cisco_ml2_nexus_host_interface_mapping'
+
+    host_id = sa.Column(sa.String(255), nullable=False, index=True)
+    switch_ip = sa.Column(sa.String(255), nullable=False, primary_key=True,
+                          index=True)
+    if_id = sa.Column(sa.String(255), nullable=False, primary_key=True)
+    ch_grp = sa.Column(sa.Integer(), nullable=False)
+    is_static = sa.Column(sa.Boolean(), nullable=False)
+
+
+class NexusVPCAlloc(bc.model_base.BASEV2):
+    """Nexus Port Channel Allocation."""
+
+    __tablename__ = 'cisco_ml2_nexus_vpc_alloc'
+
+    switch_ip = sa.Column(sa.String(64), nullable=False,
+                          primary_key=True)
+    vpc_id = sa.Column(sa.Integer, nullable=False, primary_key=True,
+                       autoincrement=False)
+
+    # learned indicates this ch_grp was predefined on Nexus Switch
+    # as opposed to ML2 Nexus driver creating the port channel #
+    learned = sa.Column(sa.Boolean, nullable=False)
+
+    # active indicates this ch_grp is in use
+    active = sa.Column(sa.Boolean, nullable=False)

@@ -16,6 +16,7 @@
 
 from oslo_log import log as logging
 import sqlalchemy.orm.exc as sa_exc
+from sqlalchemy.sql import func
 
 from networking_cisco._i18n import _LW
 
@@ -86,7 +87,6 @@ def update_reserved_binding(vlan_id, switch_ip, instance_id,
     :param vlan_id: 0
     :param switch_ip: ip address of the switch
     :param instance_id: fixed string RESERVED_NEXUS_SWITCH_DEVICE_ID_R1
-    :                   or RESERVED_NEXUS_PORT_DEVICE_ID_R1
     :param port_id: switch-state of ACTIVE, RESTORE_S1, RESTORE_S2, INACTIVE
     :               port-expected port_id
     :param ch_grp:      0 if no port-channel else non-zero integer
@@ -130,7 +130,6 @@ def remove_reserved_binding(vlan_id, switch_ip, instance_id,
     :param vlan_id: 0
     :param switch_ip: ip address of the switch
     :param instance_id: fixed string RESERVED_NEXUS_SWITCH_DEVICE_ID_R1
-    :                   or RESERVED_NEXUS_PORT_DEVICE_ID_R1
     :param port_id: switch-state of ACTIVE, RESTORE_S1, RESTORE_S2, INACTIVE
     :               port-expected port_id
     """
@@ -182,43 +181,6 @@ def update_reserved_switch_binding(switch_ip, state):
         state)
 
 
-def get_reserved_port_binding(switch_ip, port_id=None):
-    """Get a reserved port binding."""
-
-    return get_reserved_bindings(
-               const.NO_VLAN_OR_VNI_ID,
-               const.RESERVED_NEXUS_PORT_DEVICE_ID_R1,
-               switch_ip,
-               port_id)
-
-
-def add_reserved_port_binding(switch_ip, port_id, ch_grp):
-    """Add a reserved port binding."""
-
-    add_nexusport_binding(
-        port_id,
-        const.NO_VLAN_OR_VNI_ID,
-        const.NO_VLAN_OR_VNI_ID,
-        switch_ip,
-        const.RESERVED_NEXUS_PORT_DEVICE_ID_R1,
-        False,
-        const.NOT_NATIVE,
-        ch_grp)
-
-
-def update_reserved_port_binding(switch_ip, port_id, ch_grp):
-    """Update a reserved port binding."""
-
-    update_reserved_binding(
-        const.NO_VLAN_OR_VNI_ID,
-        switch_ip,
-        const.RESERVED_NEXUS_PORT_DEVICE_ID_R1,
-        port_id,
-        False,
-        const.NOT_NATIVE,
-        ch_grp)
-
-
 def is_reserved_binding(binding):
     """Identifies switch & port operational bindings.
 
@@ -235,8 +197,7 @@ def is_reserved_binding(binding):
     """
 
     return (binding.instance_id in
-           [const.RESERVED_NEXUS_SWITCH_DEVICE_ID_R1,
-            const.RESERVED_NEXUS_PORT_DEVICE_ID_R1])
+           [const.RESERVED_NEXUS_SWITCH_DEVICE_ID_R1])
 
 
 def get_nexusport_switch_bindings(switch_ip):
@@ -449,3 +410,313 @@ def get_nve_vni_deviceid_bindings(vni, device_id):
                 filter_by(vni=vni, device_id=device_id).all())
     except sa_exc.NoResultFound:
         return None
+
+
+def _lookup_host_mappings(query_type, session=None, **bfilter):
+    """Look up 'query_type' Nexus mappings matching the filter.
+
+    :param query_type: 'all', 'one' or 'first'
+    :param session: db session
+    :param bfilter: filter for mappings query
+    :return: mappings if query gave a result, else
+             raise NexusHostMappingNotFound.
+    """
+    if session is None:
+        session = db.get_session()
+    query_method = getattr(session.query(
+        nexus_models_v2.NexusHostMapping).filter_by(**bfilter), query_type)
+    try:
+        mappings = query_method()
+        if mappings:
+            return mappings
+    except sa_exc.NoResultFound:
+        pass
+    raise c_exc.NexusHostMappingNotFound(**bfilter)
+
+
+def _lookup_all_host_mappings(session=None, **bfilter):
+    return _lookup_host_mappings('all', session, **bfilter)
+
+
+def _lookup_one_host_mapping(session=None, **bfilter):
+    return _lookup_host_mappings('one', session, **bfilter)
+
+
+def get_all_host_mappings():
+    return(_lookup_all_host_mappings())
+
+
+def get_host_mappings(host_id):
+    return(_lookup_all_host_mappings(host_id=host_id))
+
+
+def get_switch_host_mappings(switch_ip):
+    return(_lookup_all_host_mappings(switch_ip=switch_ip))
+
+
+def get_switch_and_host_mappings(host_id, switch_ip):
+    return(_lookup_all_host_mappings(
+        host_id=host_id, switch_ip=switch_ip))
+
+
+def get_switch_if_host_mappings(switch_ip, if_id):
+    return(_lookup_all_host_mappings(switch_ip=switch_ip,
+                                     if_id=if_id))
+
+
+def add_host_mapping(host_id, nexus_ip, interface, ch_grp, is_static):
+    """Add Host to interface mapping entry into mapping data base.
+
+    host_id is the name of the host to add
+    interface is the interface for this host
+    nexus_ip  is the ip addr of the nexus switch for this interface
+    ch_grp    is the port channel this interface belos
+    is_static whether this is from conf file or learned
+              from baremetal.
+    """
+
+    LOG.debug("add_nexusport_binding() called")
+    session = db.get_session()
+    mapping = nexus_models_v2.NexusHostMapping(host_id=host_id,
+                  if_id=interface,
+                  switch_ip=nexus_ip,
+                  ch_grp=ch_grp,
+                  is_static=is_static)
+    session.add(mapping)
+    session.flush()
+    return mapping
+
+
+def update_host_mapping(host_id, interface, nexus_ip, new_ch_grp):
+    """Change channel_group in host/interface mapping data base."""
+
+    LOG.debug("update_host_mapping called")
+    session = db.get_session()
+    mapping = _lookup_one_host_mapping(
+                  session=session,
+                  host_id=host_id,
+                  if_id=interface,
+                  switch_ip=nexus_ip)
+    mapping.ch_grp = new_ch_grp
+    session.merge(mapping)
+    session.flush()
+    return mapping
+
+
+def remove_host_mapping(interface, nexus_ip):
+    """Remove host to interface mapping entry from mapping data base."""
+
+    LOG.debug("remove_host_mapping() called")
+    session = db.get_session()
+    try:
+        mapping = _lookup_one_host_mapping(
+                      session=session,
+                      if_id=interface,
+                      switch_ip=nexus_ip)
+        session.delete(mapping)
+        session.flush()
+    except c_exc.NexusHostMappingNotFound:
+        pass
+
+
+def remove_all_static_host_mappings():
+    """Remove all entries defined in config file from mapping data base."""
+
+    LOG.debug("remove_host_mapping() called")
+    session = db.get_session()
+    try:
+        mapping = _lookup_all_host_mappings(
+                      session=session,
+                      is_static=True)
+        for host in mapping:
+            session.delete(host)
+        session.flush()
+    except c_exc.NexusHostMappingNotFound:
+        pass
+
+
+def _lookup_vpc_allocs(query_type, session=None, **bfilter):
+    """Look up 'query_type' Nexus VPC Allocs matching the filter.
+
+    :param query_type: 'all', 'one' or 'first'
+    :param session: db session
+    :param bfilter: filter for mappings query
+    :return: VPCs if query gave a result, else
+             raise NexusVPCAllocNotFound.
+    """
+
+    if session is None:
+        session = db.get_session()
+
+    query_method = getattr(session.query(
+        nexus_models_v2.NexusVPCAlloc).filter_by(**bfilter), query_type)
+
+    try:
+        vpcs = query_method()
+        if vpcs:
+            return vpcs
+    except sa_exc.NoResultFound:
+        pass
+
+    raise c_exc.NexusVPCAllocNotFound(**bfilter)
+
+
+def _lookup_vpc_count_min_max(session=None, **bfilter):
+    """Look up count/min/max Nexus VPC Allocs for given switch.
+
+    :param session: db session
+    :param bfilter: filter for mappings query
+    :return: number of VPCs and min value if query gave a result,
+             else raise NexusVPCAllocNotFound.
+    """
+
+    if session is None:
+        session = db.get_session()
+
+    try:
+        res = session.query(
+            func.count(nexus_models_v2.NexusVPCAlloc.vpc_id),
+            func.min(nexus_models_v2.NexusVPCAlloc.vpc_id),
+            func.max(nexus_models_v2.NexusVPCAlloc.vpc_id),
+        ).filter(nexus_models_v2.NexusVPCAlloc.switch_ip ==
+                 bfilter['switch_ip']).one()
+
+        count = res[0]
+        sw_min = res[1]
+        sw_max = res[2]
+
+        return count, sw_min, sw_max
+
+    except sa_exc.NoResultFound:
+        pass
+
+    raise c_exc.NexusVPCAllocNotFound(**bfilter)
+
+
+def _lookup_all_vpc_allocs(session=None, **bfilter):
+    return _lookup_vpc_allocs('all', session, **bfilter)
+
+
+def _lookup_one_vpc_allocs(session=None, **bfilter):
+    return _lookup_vpc_allocs('one', session, **bfilter)
+
+
+def get_all_switch_vpc_allocs(switch_ip):
+    return(_lookup_all_vpc_allocs(switch_ip=switch_ip))
+
+
+def get_switch_vpc_count_min_max(switch_ip):
+    return(_lookup_vpc_count_min_max(switch_ip=switch_ip))
+
+
+def get_active_switch_vpc_allocs(switch_ip):
+    return(_lookup_all_vpc_allocs(switch_ip=switch_ip, active=True))
+
+
+def get_free_switch_vpc_allocs(switch_ip):
+    return(_lookup_all_vpc_allocs(switch_ip=switch_ip, active=False))
+
+
+def get_switch_vpc_alloc(switch_ip, vpc_id):
+    return(_lookup_one_vpc_allocs(switch_ip=switch_ip, vpc_id=vpc_id))
+
+
+def init_vpc_entries(nexus_ip, vpc_start, vpc_end):
+    """Initialize switch/vpc entries in vpc alloc data base.
+
+    param: nexus_ip  is the ip addr of the nexus switch for this interface
+    param: vpc_start is the starting vpc id
+    param: vpc_end   is the ending vpc id
+    """
+
+    LOG.debug("init_vpc_entries() called")
+
+    session = db.get_session()
+    count = vpc_end - vpc_start + 1
+    if count <= 0:
+        raise c_exc.NexusVPCAllocInvalidArgValue(
+            vpcstart=vpc_start, vpcend=vpc_end)
+
+    vpc_max = vpc_end + 1
+    for count in range(vpc_start, vpc_max):
+        vpc_alloc = nexus_models_v2.NexusVPCAlloc(
+            switch_ip=nexus_ip,
+            vpc_id=count,
+            learned=False,
+            active=False)
+        session.add(vpc_alloc)
+    session.flush()
+
+
+def update_vpc_entry(nexus_ip, vpc_id, learned, active):
+    """Change active state in vpc_allocate data base."""
+
+    LOG.debug("update_vpc_entry called")
+
+    session = db.get_session()
+    try:
+        vpc_alloc = _lookup_one_vpc_allocs(
+            switch_ip=nexus_ip,
+            vpc_id=vpc_id)
+    except c_exc.NexusVPCAllocNotFound:
+        return None
+
+    vpc_alloc.learned = learned
+    vpc_alloc.active = active
+
+    session.merge(vpc_alloc)
+    session.flush()
+
+    return vpc_alloc
+
+
+def alloc_vpcid(nexus_ips):
+    """Allocate a vpc id for the given list of switch_ips."""
+
+    LOG.debug("alloc_vpc() called")
+    vpc_list = []
+
+    # First build a set of vlans for each switch
+    for n_ip in nexus_ips:
+        switch_free_list = get_free_switch_vpc_allocs(n_ip)
+        vpc_set = set()
+        for switch_ip, vpcid, learned, active in switch_free_list:
+            vpc_set.add(vpcid[1])
+        vpc_list.append(vpc_set)
+
+    # Now get intersection
+    intersect = vpc_list[0]
+    for switch_list in vpc_list:
+        intersect = intersect & switch_list
+
+    intersect = list(intersect)
+    if len(intersect) > 0:
+        intersect.sort()
+        vpc_id = intersect[0]    # get smallest
+        for n_ip in nexus_ips:
+            update_vpc_entry(n_ip, vpc_id, False, True)
+    else:
+        vpc_id = 0
+
+    return vpc_id
+
+
+def free_vpcid_for_switch_list(vpc_id, nexus_ips):
+    """Free a vpc id for the given list of switch_ips."""
+
+    LOG.debug("free_vpcid_for_switch_list() called")
+    if vpc_id == 0:
+        return
+
+    for n_ip in nexus_ips:
+        update_vpc_entry(n_ip, vpc_id, False, False)
+
+
+def free_vpcid_for_switch(vpc_id, nexus_ip):
+    """Free a vpc id for the given switch_ip."""
+
+    LOG.debug("free_vpcid_for_switch() called")
+    if vpc_id == 0:
+        return
+
+    update_vpc_entry(nexus_ip, vpc_id, False, False)

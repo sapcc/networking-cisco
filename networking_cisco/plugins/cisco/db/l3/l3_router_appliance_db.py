@@ -36,7 +36,6 @@ from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.common import rpc as n_rpc
 from neutron.common import utils
-from neutron import context as n_context
 from neutron.db import db_base_plugin_v2
 from neutron.db import extraroute_db
 from neutron.db import l3_db
@@ -342,13 +341,17 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
     def delete_router(self, context, router_id, unschedule=True):
         try:
             self._validate_caller(context, router_id)
+        except RouterBindingInfoError:
+            LOG.debug('Router %s to be deleted has no binding information '
+                      'so assuming it is a regular router', router_id)
+        try:
             router_db = self._ensure_router_not_in_use(context, router_id)
         except sa_exc.InvalidRequestError:
             # Perform router deletion for a partially failed router creation
             # that involved rollback of the transaction in the  context's
             # session. We therefore use a temporary context for the router
             # deletion and rely on the parent delete function.
-            temp_ctx = n_context.Context(context.user_id, context.tenant_id,
+            temp_ctx = bc.context.Context(context.user_id, context.tenant_id,
                                          context.is_admin)
             super(L3RouterApplianceDBMixin, self).delete_router(
                 temp_ctx, router_id)
@@ -420,8 +423,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             with excutils.save_and_reraise_exception():
                 # put router back in backlog if deletion failed so that it
                 # gets reinstated
-                LOG.exception(_LE("Deletion of router %s failed. It will be "
-                                  "re-hosted."), router_id)
+                LOG.error(_LE("Deletion of router %s failed."), router_id)
                 if was_hosted is True or r_hd_binding_db.auto_schedule is True:
                     LOG.info(_LI("Router %s will be re-hosted."), router_id)
                     self.backlog_router(context, r_hd_binding_db)
@@ -468,6 +470,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
                  self.get_namespace_router_type_id(context))
         if is_ha:
             # process any HA
+            setattr(context, 'GUARD_TRANSACTION', False)
             self._add_redundancy_router_interfaces(
                 context, self._make_router_dict(r_hd_binding_db.router),
                 interface_info, self._core_plugin.get_port(context,
@@ -501,6 +504,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
 
     def remove_router_interface(self, context, router_id, interface_info):
         self._validate_caller(context, router_id)
+        setattr(context, 'GUARD_TRANSACTION', False)
         remove_by_port, remove_by_subnet = self._validate_interface_info(
             interface_info, for_removal=True)
         e_context = context.elevated()
@@ -976,6 +980,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
            DOWN and when the ASR plugin creates the port it notifies the DB to
            change the status to ACTIVE.
         """
+        setattr(context, 'GUARD_TRANSACTION', False)
         for port_id in port_ids:
             self._core_plugin.update_port_status(context, port_id, status)
 
@@ -1091,7 +1096,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
 
     @lockutils.synchronized('routerbacklog', 'neutron-')
     def _process_backlogged_routers(self):
-        e_context = n_context.get_admin_context()
+        e_context = bc.context.get_admin_context()
         for r_type, drv in self._router_drivers.items():
             if drv is not None:
                 LOG.debug('Calling pre_backlog_processing for router type %s',
@@ -1157,7 +1162,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
 
     def _sync_router_backlog(self):
         LOG.info(_LI('Synchronizing router (scheduling) backlog'))
-        context = n_context.get_admin_context()
+        context = bc.context.get_admin_context()
         type_to_exclude = self.get_namespace_router_type_id(context)
         query = context.session.query(l3_models.RouterHostingDeviceBinding)
         query = query.options(joinedload('router'))
@@ -1239,7 +1244,8 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             raise RouterCreateInternalError()
         return self._make_routertype_dict(router_type_db)
 
-    def _get_effective_and_normal_routertypes(self, context, hosting_info):
+    def _get_effective_and_normal_routertypes(self, context, router_id,
+                                              hosting_info):
         if hosting_info:
             hosting_device = hosting_info.hosting_device
             normal = self._make_routertype_dict(hosting_info.router_type)
@@ -1259,14 +1265,15 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         else:
             # should not happen but just in case...
             LOG.debug('Could not determine effective router type since '
-                      'router db record had no binding information')
+                      'router db record for router %s had no binding '
+                      'information', router_id)
             normal = None
             effective = None
         return effective, normal
 
-    def _get_effective_slot_need(self, context, hosting_info):
+    def _get_effective_slot_need(self, context, router_id, hosting_info):
         (eff_rt, norm_rt) = self._get_effective_and_normal_routertypes(
-            context, hosting_info)
+            context, router_id, hosting_info)
         return eff_rt['slot_need'] if eff_rt else 0
 
     def _update_routertype(self, context, r, binding_info_db):
@@ -1287,9 +1294,9 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         # put in backlog for rescheduling
 
     def _extend_router_dict_routertype(self, router_res, router_db):
-        adm_context = n_context.get_admin_context()
+        adm_context = bc.context.get_admin_context()
         (eff_rt, norm_rt) = self._get_effective_and_normal_routertypes(
-            adm_context, router_db.hosting_info)
+            adm_context, router_db.id, router_db.hosting_info)
         # Show both current (temporary) and normal types if Neutron router is
         # relocated to a device of different type
         if eff_rt and norm_rt:
@@ -1519,7 +1526,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         self._dev_mgr._setup_device_manager()
         rt_dict = config.get_specific_config('cisco_router_type')
         attr_info = routertype.RESOURCE_ATTRIBUTE_MAP[routertype.ROUTER_TYPES]
-        adm_context = n_context.get_admin_context()
+        adm_context = bc.context.get_admin_context()
 
         for rt_uuid, kv_dict in rt_dict.items():
             try:

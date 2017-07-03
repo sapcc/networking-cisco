@@ -871,6 +871,8 @@ class ConfigSyncer(object,alerts.AlertMixin):
                          {'del_cmd': del_cmd})
                 vrf_name = re.match('.* vrf (.*) overload', nat_cfg).group(1)
                 wipestr = asr_snippets.CLEAR_IP_NAT_TRANSLATIONS_VRF % vrf_name
+
+
                 self.prometheus.sync_delete_nat_pool_overload.labels([self.hd_id]).inc()
                 for attempts in range(MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS):
                     try:
@@ -879,6 +881,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
                             conn.edit_config(target='running', config=confstr)
                         else:
                             self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT overload clean attempt", confstr)
+
 
                         break
                     except RPCError as e:
@@ -901,7 +904,6 @@ class ConfigSyncer(object,alerts.AlertMixin):
                                 conn.edit_config(target='running', config=wipestr)
                             else:
                                 self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT overload (wipe) clean attempt", wipestr)
-
 
 
         LOG.debug("delete_nat_list = %s " % (pp.pformat(delete_nat_list)))

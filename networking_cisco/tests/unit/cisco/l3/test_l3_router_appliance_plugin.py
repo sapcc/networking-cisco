@@ -19,7 +19,6 @@ import unittest
 
 from neutron.api.v2 import attributes
 from neutron.callbacks import registry
-from neutron import context as n_context
 from neutron.db import agents_db
 from neutron.extensions import external_net as external_net
 from neutron.extensions import extraroute
@@ -327,7 +326,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
                 r['route_list'] = []
                 binding_mock.router = r
                 self.l3_plugin.unschedule_router_from_hosting_device(
-                    n_context.get_admin_context(), binding_mock)
+                    bc.context.get_admin_context(), binding_mock)
             pre_mock.assert_has_calls([mock.call(mock.ANY, mock.ANY)])
             post_mock.assert_has_calls([mock.call(mock.ANY, mock.ANY)])
 
@@ -338,7 +337,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
         router = {'router': {'tenant_id': 'foo',
                              'admin_state_up': True,
                              'name': 'bar'}}
-        ctx = n_context.get_admin_context()
+        ctx = bc.context.get_admin_context()
         self.l3_plugin.create_router(ctx, router)
         driver.create_router_precommit.assert_called_once_with(
             ctx, mock.ANY)
@@ -351,7 +350,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
             return_value=driver)
         with self.router() as router:
             r = router['router']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             self.l3_plugin.update_router(ctx, r['id'], router)
             driver.update_router_precommit.assert_called_once_with(
                 ctx, mock.ANY)
@@ -364,7 +363,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
             return_value=driver)
         with self.router() as router:
             r = router['router']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             self.l3_plugin.delete_router(ctx, r['id'])
             driver.delete_router_precommit.assert_called_once_with(
                 ctx, mock.ANY)
@@ -378,7 +377,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
         with self.router() as router, self.subnet(cidr='10.0.1.0/24') as sub:
             r = router['router']
             s1 = sub['subnet']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             info = {'subnet_id': s1['id']}
             self.l3_plugin.add_router_interface(ctx, r['id'], info)
             driver.add_router_interface_precommit.assert_called_once_with(
@@ -393,7 +392,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
         with self.router() as router, self.port(cidr='10.0.1.0/24') as port:
             r = router['router']
             p1 = port['port']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             info = {'port_id': p1['id']}
             self.l3_plugin.add_router_interface(ctx, r['id'], info)
             driver.add_router_interface_precommit.assert_called_once_with(
@@ -408,7 +407,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
         with self.router() as router, self.subnet(cidr='10.0.1.0/24') as sub:
             r = router['router']
             s1 = sub['subnet']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             info = {'subnet_id': s1['id']}
             self.l3_plugin.add_router_interface(ctx, r['id'], info)
             self.l3_plugin.remove_router_interface(ctx, r['id'], info)
@@ -424,7 +423,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
         with self.router() as router, self.port(cidr='10.0.1.0/24') as port:
             r = router['router']
             p1 = port['port']
-            ctx = n_context.get_admin_context()
+            ctx = bc.context.get_admin_context()
             info = {'port_id': p1['id']}
             self.l3_plugin.add_router_interface(ctx, r['id'], info)
             self.l3_plugin.remove_router_interface(ctx, r['id'], info)
@@ -450,7 +449,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
                 fip = {'floatingip': {'floating_network_id': ext_net_id,
                                       'port_id': p1['id'],
                                       'tenant_id': s1['tenant_id']}}
-                ctx = n_context.get_admin_context()
+                ctx = bc.context.get_admin_context()
                 self.l3_plugin.create_floatingip(ctx, fip)
                 driver.create_floatingip_postcommit.assert_called_once_with(
                     ctx, mock.ANY)
@@ -472,7 +471,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
                 fip = {'floatingip': {'floating_network_id': ext_net_id,
                                       'port_id': p1['id'],
                                       'tenant_id': s1['tenant_id']}}
-                ctx = n_context.get_admin_context()
+                ctx = bc.context.get_admin_context()
                 floating_ip = self.l3_plugin.create_floatingip(ctx, fip)
                 fip = {'floatingip': {'port_id': None}}
                 self.l3_plugin.update_floatingip(ctx, floating_ip['id'], fip)
@@ -502,7 +501,7 @@ class L3RouterApplianceRouterTypeDriverTestCase(test_l3.L3NatTestCaseMixin,
                 fip = {'floatingip': {'floating_network_id': ext_net_id,
                                       'port_id': p1['id'],
                                       'tenant_id': s1['tenant_id']}}
-                ctx = n_context.get_admin_context()
+                ctx = bc.context.get_admin_context()
                 floating_ip = self.l3_plugin.create_floatingip(ctx, fip)
                 self.l3_plugin.delete_floatingip(ctx, floating_ip['id'])
                 driver.delete_floatingip_precommit.assert_called_once_with(
@@ -694,7 +693,7 @@ class L3CfgAgentRouterApplianceTestCase(L3RouterApplianceTestCaseBase,
                         r.update({'hosting_device': {'id': 'fake_id'}}))
                     m2.return_value = None
                     routers = self.l3_plugin.get_sync_data(
-                        n_context.get_admin_context(), None)
+                        bc.context.get_admin_context(), None)
                     self.assertEqual(num, len(routers))
                     self.assertEqual(c_const.ROUTER_INFO_INCOMPLETE,
                                      routers[0]['status'])
@@ -721,7 +720,7 @@ class L3CfgAgentRouterApplianceTestCase(L3RouterApplianceTestCaseBase,
                         r.update({'hosting_device': {'id': 'fake_id'}}))
                     m2.return_value = None
                     routers = self.l3_plugin.get_sync_data(
-                        n_context.get_admin_context(), None)
+                        bc.context.get_admin_context(), None)
                     self.assertEqual(num, len(routers))
                     self.assertEqual(c_const.ROUTER_INFO_INCOMPLETE,
                                      routers[0]['status'])
@@ -735,7 +734,7 @@ class L3CfgAgentRouterApplianceTestCase(L3RouterApplianceTestCaseBase,
             plugging_drv_mock = mock.MagicMock()
             plugging_drv_mock.allocate_hosting_port.return_value = {
                 'allocated_port_id': p1_id, 'allocated_vlan': 10}
-            adm_ctx = n_context.get_admin_context()
+            adm_ctx = bc.context.get_admin_context()
             p1_db = self._core_plugin._get_port(adm_ctx, p1_id)
             ctx_mock = mock.MagicMock()
             ctx_mock.session = mock.MagicMock()
@@ -803,7 +802,7 @@ class L3RouterApplianceGbpTestCase(test_l3.L3NatTestCaseMixin,
                     'floatingip': {'floating_network_id': network['id'],
                                    'tenant_id': net['network']['tenant_id']}
                 }
-                ctx = n_context.get_admin_context()
+                ctx = bc.context.get_admin_context()
                 with self._mock_neutron_service_plugins():
                     self.l3_plugin.create_floatingip(ctx, floating_ip)
                 dummy_func.assert_called_once_with(ctx)
@@ -814,7 +813,7 @@ class L3RouterApplianceGbpTestCase(test_l3.L3NatTestCaseMixin,
 
     def test_update_floatingip_gbp(self):
         self.l3_plugin._do_update_floatingip = mock.Mock()
-        ctx = n_context.get_admin_context()
+        ctx = bc.context.get_admin_context()
         TEST_FIP_UUID = _uuid()
         floating_ip = {
             'floatingip': {'floating_network_id': _uuid()}
@@ -843,7 +842,7 @@ class L3RouterApplianceNoGbpTestCase(test_l3.L3NatTestCaseMixin,
         self.l3_plugin._update_fip_assoc = mock.Mock()
         self.l3_plugin._create_floatingip_neutron = mock.Mock()
         self.l3_plugin._create_floatingip_gbp = mock.Mock()
-        ctx = n_context.get_admin_context()
+        ctx = bc.context.get_admin_context()
         floating_ip = {
             'floatingip': {'floating_network_id': _uuid()}
         }
@@ -854,7 +853,7 @@ class L3RouterApplianceNoGbpTestCase(test_l3.L3NatTestCaseMixin,
 
     def test_update_floatingip_no_gbp(self):
         self.l3_plugin._do_update_floatingip = mock.Mock()
-        ctx = n_context.get_admin_context()
+        ctx = bc.context.get_admin_context()
         TEST_FIP_UUID = _uuid()
         floating_ip = {
             'floatingip': {'floating_network_id': _uuid()}
