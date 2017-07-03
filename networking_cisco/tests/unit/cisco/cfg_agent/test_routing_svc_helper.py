@@ -1047,10 +1047,10 @@ class TestBasicRoutingOperations(
         self.routing_helper._process_router.assert_called_with(ri1)
 
     def test_process_routers_skips_routers_on_other_hosting_devices(self):
-        router1, port1 = prepare_router_data()
+        router1, port1 = self.prepare_router_data()
         r1_id = router1['id']
         r1_info = routing_svc_helper.RouterInfo(r1_id, router1)
-        router2, port2 = prepare_router_data()
+        router2, port2 = self.prepare_router_data()
         r2_id = router2['id']
         self.routing_helper.router_info = {
             r1_id: r1_info,
