@@ -200,6 +200,8 @@ class CiscoCfgAgent(manager.Manager):
             LOG.info("To manage hosting devices %s", hds)
             self._dev_status.backlog_hosting_devices(hds)
         LOG.info("Cisco cfg agent started")
+        if self.routing_service_helper:
+            self.routing_service_helper.collect_active()
 
     def get_routing_service_helper(self):
         return self.routing_service_helper

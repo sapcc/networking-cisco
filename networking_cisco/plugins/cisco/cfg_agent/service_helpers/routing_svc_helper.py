@@ -16,6 +16,7 @@ import collections
 import eventlet
 import netaddr
 import pprint as pp
+import signal
 
 from operator import itemgetter
 from oslo_concurrency import lockutils
@@ -46,6 +47,7 @@ ncc_errors = importutils.try_import('ncclient.transport.errors')
 
 LOG = logging.getLogger(__name__)
 
+MAX_FETCH_TRIES=10
 
 N_ROUTER_PREFIX = 'nrouter-'
 ROUTER_ROLE_ATTR = routerrole.ROUTER_ROLE_ATTR
@@ -53,6 +55,19 @@ ROUTER_ROLE_ATTR = routerrole.ROUTER_ROLE_ATTR
 # Minimum number of routers to fetch from server at a time on resync.
 # Needed to reduce load on server side and to speed up resync on agent side.
 SYNC_ROUTERS_MIN_CHUNK_SIZE = 8
+
+
+SYNC_OPTS = [
+    cfg.BoolOpt('sync_on_start',
+               default=False,
+               help=_("Enable a full sync on agent startup")),
+    cfg.BoolOpt('sync_on_exception',
+               default=False,
+               help=_("Enable a full sync on exception"))
+    ]
+
+
+cfg.CONF.register_opts(SYNC_OPTS, "sync")
 
 
 class IPAddressMissingException(n_lib_exc.NeutronException):
@@ -195,7 +210,8 @@ class RoutingServiceHelper(object):
         self.removed_routers = set()
         self.sync_devices = set()
         self.sync_devices_attempts = 0
-        self.fullsync = True
+        self.fullsync = cfg.CONF.sync.sync_on_start
+        self.fullsync_on_exception = cfg.CONF.sync.sync_on_exception
         self.sync_routers_chunk_size = (
             cfg.CONF.cfg_agent.max_device_sync_batch_size)
         self.topic = '%s.%s' % (c_constants.CFG_AGENT_L3_ROUTING, host)
@@ -203,7 +219,19 @@ class RoutingServiceHelper(object):
         self.hardware_router_type = None
         self.hardware_router_type_id = None
 
+        self.prometheus = prometheus.Prometheus()
+
         self._setup_rpc()
+
+        signal.signal(signal.SIGUSR1, self.trigger_sync)
+
+
+
+
+    def trigger_sync(self,signum, frame):
+        LOG.info("Setup full sync based on external signal")
+        self.fullsync =True
+
 
     def _setup_rpc(self):
         self.conn = n_rpc.create_connection()
@@ -246,6 +274,20 @@ class RoutingServiceHelper(object):
     def driver_manager(self):
         return self._drivermgr
 
+
+    def collect_active(self):
+        self.router_info = {}
+        tries = 0
+        while tries < MAX_FETCH_TRIES :
+            try:
+                routers = self._fetch_router_info(all_routers=True)
+                for router in routers:
+                    self.router_info[router['id']] = RouterInfo(router['id'],router)
+                return
+            except Exception as e:
+                tries += 1
+                LOG.warning("Failed to fetch current active state due to error %s",e)
+
     def process_service(self, device_ids=None, removed_devices_info=None):
         try:
             LOG.debug("Routing service processing started")
@@ -262,7 +304,7 @@ class RoutingServiceHelper(object):
                 self._get_and_clear_updated_routers_cache()
                 self._get_and_clear_removed_routers_cache()
                 self.sync_devices.clear()
-                routers = self._fetch_router_info(all_routers=True)
+                routers = self._fetch_router_info(all_routers=True,trigger_fullsync=True)
                 LOG.debug("All routers: %s" % (pp.pformat(routers)))
                 if routers is not None:
                     self._cleanup_invalid_cfg(routers)
@@ -312,7 +354,7 @@ class RoutingServiceHelper(object):
             LOG.debug("Routing service processing successfully completed")
         except Exception:
             LOG.exception("Failed processing routers")
-            self.fullsync = True
+            self.fullsync = self.fullsync_on_exception
 
     def collect_state(self, configurations):
         """Collect state from this helper.
@@ -419,7 +461,7 @@ class RoutingServiceHelper(object):
             #    routers[0]['hosting_device'], routers)
 
     def _fetch_router_info(self, router_ids=None, device_ids=None,
-                           all_routers=False):
+                           all_routers=False, trigger_fullsync=False):
         """Fetch router dict from the routing plugin.
 
         :param router_ids: List of router_ids of routers to fetch
@@ -460,7 +502,7 @@ class RoutingServiceHelper(object):
             raise
         except oslo_messaging.MessagingException:
             LOG.exception("RPC Error in fetching routers from plugin")
-            self.fullsync = True
+            self.fullsync = trigger_fullsync
             raise n_exc.AbortSyncRouters()
 
         LOG.debug("Periodic_sync_routers_task successfully completed")
