@@ -636,7 +636,12 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
             the_port = gw_port
         subnet_id = gw_port['ip_info']['subnet_id']
         fixed_ip = self._get_item(the_port['fixed_ips'], subnet_id)
-        pool_ip = fixed_ip['ip_address']
+        pool_ip = fixed_ip.get('ip_address')
+
+        if pool_ip is None:
+            LOG.error(_LI("Cannot get pool ip for router %s subnet %s port %s"),ri.router_id,subnet_id,the_port)
+            return
+
         pool_ip_prefix_len = fixed_ip['prefixlen']
         #TODO(ebobmel) We need to modify the pool name generation if we
         #              will have multiple NAT pools per VRF
