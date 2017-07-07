@@ -646,7 +646,7 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
             for subnet in gw_port.get('extra_subnets'):
                 LOG.debug(_LI("Checking extra subnets for fixed ips %s, port subnet is %s"),the_port.get('fixed_ips'),subnet.get('id'))
                 fixed_ip = self._get_item(the_port['fixed_ips'], subnet.get('id'))
-                if fixed_ip is not None:
+                if fixed_ip:
                     pool_ip = fixed_ip.get('ip_address')
                     break
 
