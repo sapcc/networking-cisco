@@ -642,6 +642,16 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
         pool_ip = fixed_ip.get('ip_address')
 
         if pool_ip is None:
+            LOG.debug(_LI("Cannot find pool ID HA port has fixed IPS %s, gw port subnet is %s"),the_port.get('fixed_ips'),subnet_id)
+            for subnet in gw_port.get('extra_subnets'):
+                LOG.debug(_LI("Checking extra subnets for fixed ips %s, port subnet is %s"),the_port.get('fixed_ips'),subnet.get('id'))
+                fixed_ip = self._get_item(the_port['fixed_ips'], subnet.get('id'))
+                if fixed_ip is not None:
+                    pool_ip = fixed_ip.get('ip_address')
+                    break
+
+        if pool_ip is None:
+
             LOG.error(_LI("Cannot get pool ip for router %s subnet %s port %s"),ri.router_id,subnet_id,the_port)
             return
 
