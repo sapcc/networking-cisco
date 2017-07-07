@@ -15,6 +15,7 @@ def metric(metric=None,action=None,**action_args):
 
     def decorator(func):
         def func_wrapper(*args, **kwargs):
+
             ret_val = func(*args, **kwargs)
 
             hosting_device = args[0].hosting_device
@@ -62,6 +63,8 @@ class Prometheus:
             self.sync_delete_snat = Counter('asr_sync_delete_snat', 'Number of attempts to delete an SNAT entry on sync', ['hosting_device'])
             self.sync_delete_acl = Counter('asr_sync_delete_acl', 'Number of attempts to delete an ACL entry on sync', ['hosting_device'])
             self.sync_delete_interface = Counter('asr_sync_delete_interface', 'Number of attempts to delete an interface entry on sync', ['hosting_device'])
+
+            self.router_info_incomplete = Gauge('asr_router_info_incomplete', 'Number of routers with INFO)INCOMPLETE state', ['hosting_device'])
 
 
 

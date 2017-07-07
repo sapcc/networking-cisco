@@ -17,6 +17,7 @@ import eventlet
 import netaddr
 import pprint as pp
 import signal
+import time
 
 from operator import itemgetter
 from oslo_config import cfg
@@ -32,6 +33,7 @@ from neutron.common import topics
 
 from neutron_lib import exceptions as n_lib_exc
 
+from networking_cisco import  prometheus
 from networking_cisco._i18n import _, _LE, _LI, _LW
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.cfg_agent import cfg_exceptions
@@ -209,6 +211,7 @@ class RoutingServiceHelper(object):
         self.removed_routers = set()
         self.sync_devices = set()
         self.sync_devices_attempts = 0
+        self.pause_process = False
         self.fullsync = cfg.CONF.sync.sync_on_start
         self.fullsync_on_exception = cfg.CONF.sync.sync_on_exception
         self.sync_routers_chunk_size = (
@@ -223,6 +226,7 @@ class RoutingServiceHelper(object):
         self._setup_rpc()
 
         signal.signal(signal.SIGUSR1, self.trigger_sync)
+        signal.signal(signal.SIGUSR2, self.pause_processing)
 
 
 
@@ -231,6 +235,14 @@ class RoutingServiceHelper(object):
         LOG.info("Setup full sync based on external signal")
         self.fullsync =True
 
+    def pause_processing(self,signum, frame):
+
+        if self.pause_process:
+            LOG.info("Resuming processing after receiving external signal")
+            self.pause_process = False
+        else:
+            LOG.info("Pausing processing after receiving external signal")
+            self.pause_process = True
 
     def _setup_rpc(self):
         self.conn = n_rpc.create_connection()
@@ -281,13 +293,19 @@ class RoutingServiceHelper(object):
             try:
                 routers = self._fetch_router_info(all_routers=True)
                 for router in routers:
+                    # Set driver to avoid subsequent issues
+                    self.driver_manager.set_driver(router)
                     self.router_info[router['id']] = RouterInfo(router['id'],router)
                 return
             except Exception as e:
                 tries += 1
-                LOG.warning("Failed to fetch current active state due to error %s",e)
+                time.sleep(5)
+                LOG.warning("Failed to fetch current active state try %i of %i , due to error %s",tries+1,MAX_FETCH_TRIES, e)
 
     def process_service(self, device_ids=None, removed_devices_info=None):
+        if self.pause_process:
+            return
+
         try:
             LOG.debug("Routing service processing started")
             resources = {}
@@ -686,9 +704,10 @@ class RoutingServiceHelper(object):
                     # timing and db settling down. So put this router
                     # back in updated_routers, we will pull again on the
                     # sync time.
-                    LOG.debug("Router: %(id)s INFO_INCOMPLETE",
+                    LOG.error("Router: %(id)s INFO_INCOMPLETE",
                               {'id': r['id']})
                     self.updated_routers.add(r['id'])
+                    self.prometheus.router_info_incomplete.labels(r['hosting_device']['id']).inc()
                     continue
                 try:
                     if not r['admin_state_up']:
@@ -1138,9 +1157,13 @@ class RoutingServiceHelper(object):
             ri.floating_ips.remove(configured_fip)
 
         for configured_fip in fips_to_add:
-            self._floating_ip_added(ri, ex_gw_port,
-                                    configured_fip['floating_ip_address'],
-                                    configured_fip['fixed_ip_address'])
+            try:
+                self._floating_ip_added(ri, ex_gw_port,
+                                        configured_fip['floating_ip_address'],
+                                        configured_fip['fixed_ip_address'])
+            except Exception as e:
+                LOG.error("Failed to add floating IP to router %s ,  %s",ri.id,e)
+                continue
             # add fip to "cache" of fips configured in device
             ri.floating_ips.append(configured_fip)
             fip_statuses[configured_fip['id']] = (
@@ -1211,7 +1234,7 @@ class RoutingServiceHelper(object):
                 self.driver_manager.remove_driver(router_id)
             del self.router_info[router_id]
             self.removed_routers.discard(router_id)
-        except cfg_exceptions.DriverException:
+        except cfg_exceptions.DriverException as e:
             LOG.warning(_LW("Router remove for router_id: %s was incomplete. "
                             "Adding the router to removed_routers list"),
                         router_id)
