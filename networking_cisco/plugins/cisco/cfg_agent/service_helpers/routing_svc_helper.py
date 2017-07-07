@@ -936,7 +936,11 @@ class RoutingServiceHelper(object):
                           {'p_id': p['id'],
                            'ip': p['fixed_ips'][0]['ip_address']})
             self._set_subnet_info(p, p['subnets'][0]['id'], is_primary)
-            self._internal_network_added(ri, p, ex_gw_port)
+            try:
+                self._internal_network_added(ri, p, ex_gw_port)
+            except  cfg_exceptions.CSR1kvConfigException as e:
+                LOG.exception(e)
+                continue
 
             if not any(i_p['id'] == p['id'] for i_p in ri.internal_ports):
                 ri.internal_ports.append(p)
