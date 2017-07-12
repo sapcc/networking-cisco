@@ -169,7 +169,7 @@ MAX_NAT_POOL_OVERLOAD_REMOVAL_ATTEMPTS = MAX_RETRY_ATTEMPTS
 
 CLEANING_OPTS = [
     cfg.StrOpt('cleaning_mode',
-               default='ALERT',
+               default='DELETE',
                help=_("General Mode to operate cleaning during the sync one of ALERT or DELETE")),
     cfg.StrOpt('cleaning_mode_snat',
                default='DELETE',
