@@ -6,6 +6,7 @@ import sys
 
 from neutron.common import config as common_config
 
+from networking_cisco import backwards_compatibility as bc
 from  networking_cisco.plugins.cisco.cfg_agent import cfg_agent
 
 
@@ -24,6 +25,7 @@ class BaseAction(object):
         common_config.init("--config-file " + s for s in self.config_files)
         self.host = socket.gethostname()
         self._initialize_service_helpers(self.host)
+        bc.config.setup_logging()
 
 
 
