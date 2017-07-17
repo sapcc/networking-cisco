@@ -38,6 +38,7 @@ from neutron.common import rpc as n_rpc
 from neutron.common import utils
 from neutron.db import db_base_plugin_v2
 from neutron.db import extraroute_db
+from neutron.db import external_net_db
 from neutron.db import l3_db
 from neutron.extensions import l3
 from neutron.extensions import providernet as pr_net
@@ -93,6 +94,8 @@ ROUTER_APPLIANCE_OPTS = [
 
 cfg.CONF.register_opts(ROUTER_APPLIANCE_OPTS, "routing")
 
+class TopologyNotSupported(n_exc.NeutronException):
+    message = _("You cannot add an external network subnet as a router internal interface.")
 
 class RouterCreateInternalError(n_exc.NeutronException):
     message = _("Router could not be created due to internal error.")
@@ -111,7 +114,7 @@ class PluginManagedRouterError(n_exc.NotAuthorized):
                 "plugin and cannot be modified by users (including admins).")
 
 
-class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
+class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin, external_net_db.External_net_db_mixin):
     """Mixin class implementing Neutron's routing service using appliances."""
 
     # Dictionary with loaded scheduler modules for different router types
@@ -443,6 +446,20 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
 
     def add_router_interface(self, context, router_id, interface_info):
         self._validate_caller(context, router_id)
+
+
+        if interface_info.get('subnet_id') is not None:
+            subnet_db = self._core_plugin._get_subnet(context, interface_info.get('subnet_id'))
+            network_db =  self._core_plugin.get_network(context, subnet_db.network_id)
+            if network_db.get('router:external'):
+                raise TopologyNotSupported()
+        elif interface_info.get('port_id') is not None:
+            port_db = self._core_plugin._get_port(context, interface_info.get('port_id'))
+            network_db =  self._core_plugin.get_network(context, port_db.network_id)
+            if network_db.get('router:external'):
+                raise TopologyNotSupported()
+
+
         router_type_id = self.get_router_type_id(context, router_id)
         r_hd_binding_db = self._get_router_binding_info(context.elevated(),
                                                         router_id)
