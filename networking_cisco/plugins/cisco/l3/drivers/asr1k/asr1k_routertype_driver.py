@@ -24,7 +24,7 @@ from neutron.extensions import l3
 from neutron_lib import constants as l3_constants
 from neutron_lib import exceptions as n_exc
 
-from networking_cisco._i18n import _, _LI
+from networking_cisco._i18n import _, _LI,_LW
 from networking_cisco import backwards_compatibility as bc
 from networking_cisco.plugins.cisco.common import cisco_constants
 from networking_cisco.plugins.cisco.db.l3 import ha_db
