@@ -288,6 +288,7 @@ class RoutingServiceHelper(object):
 
 
     def collect_active(self):
+        LOG.debug("Trying to fetch initial router state from Neutron")
         self.router_info = {}
         tries = 0
         while tries < MAX_FETCH_TRIES :
@@ -297,11 +298,18 @@ class RoutingServiceHelper(object):
                     # Set driver to avoid subsequent issues
                     self.driver_manager.set_driver(router)
                     self.router_info[router['id']] = RouterInfo(router['id'],router)
+
+                LOG.debug("Initial router state includes %i routers", len(self.router_info))
+
                 return
             except Exception as e:
                 tries += 1
                 time.sleep(5)
                 LOG.warning("Failed to fetch current active state try %i of %i , due to error %s",tries+1,MAX_FETCH_TRIES, e)
+
+        LOG.error("Failed to determine initial state.")
+        exit(1)
+
 
     def process_service(self, device_ids=None, removed_devices_info=None):
         if self.pause_process:
