@@ -17,9 +17,11 @@ class BaseAction(object):
 
 
     def __init__(self,namespace):
+        print(namespace)
         self.router_id = namespace.router_id
+        self.port_id = namespace.port_id
         self.config_files = namespace.config
-
+        self.confirm = namespace.confirm
         self.conf = cfg.CONF
         self.conf.register_opts(cfg_agent.OPTS, "cfg_agent")
         common_config.init("--config-file " + s for s in self.config_files)
