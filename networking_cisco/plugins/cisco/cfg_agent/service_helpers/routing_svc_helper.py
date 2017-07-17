@@ -672,18 +672,25 @@ class RoutingServiceHelper(object):
                 hosting_devices[hd_id].setdefault(key, []).append(r)
         return hosting_devices
 
-    def _adjust_router_list_for_global_router(self, routers):
+    def _adjust_router_list_for_global_router(self, routers, processfirst=False):
         """
-        Pushes 'Global' routers to the end of the router list, so that
-        deleting default route occurs before deletion of external nw subintf
+        Pushes 'Global' routers to the end of the router list if deleting, so that
+        deleting default route occurs before deletion of external nw subintf. Otherwise
+        they are processed first to minimise downtime in case sync has cleaned the
+        interface
         """
         #ToDo(Hareesh): Simplify if possible
         for r in routers:
             if r[ROUTER_ROLE_ATTR] == c_constants.ROUTER_ROLE_GLOBAL:
-                LOG.debug("Global router:%s found. Moved to the end of list "
-                          "for processing", r['id'])
                 routers.remove(r)
-                routers.append(r)
+                if processfirst:
+                    LOG.debug("Global router:%s found. Moved to the start of list "
+                              "for processing", r['id'])
+                    routers.insert(0, r)
+                else:
+                    LOG.debug("Global router:%s found. Moved to the end of list "
+                              "for deletion", r['id'])
+                    routers.append(r)
 
     def _process_routers(self, routers, removed_routers,
                          device_id=None, all_routers=False):
@@ -737,7 +744,7 @@ class RoutingServiceHelper(object):
                 for router in removed_routers:
                     deleted_routerids_list.append(router['id'])
 
-            self._adjust_router_list_for_global_router(routers)
+            self._adjust_router_list_for_global_router(routers, True)
             # First process create/updated routers
             for r in routers:
                 LOG.debug("Processing router[id:%(id)s, role:%(role)s]",
