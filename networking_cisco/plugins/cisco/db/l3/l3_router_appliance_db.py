@@ -761,6 +761,10 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             return []
         return router_ids
 
+
+    def get_floating_ip(self,context,floatingip_id):
+        return self._get_floatingip(context, floatingip_id)
+
     def get_routers_count_extended(self, context, filters=None,
                                    invert_filters=None):
         qry = self._get_collection_query(context, bc.Router,

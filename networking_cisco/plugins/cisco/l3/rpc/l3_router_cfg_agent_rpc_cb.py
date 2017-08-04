@@ -158,3 +158,8 @@ class L3RouterCfgRpcCallback(object):
         """
         self._l3plugin.update_router_port_statuses(context, port_ids,
                                                    status)
+
+
+    @db_api.retry_db_errors
+    def get_floating_ip(self, context, floatingip_id):
+        return self._l3plugin.get_floating_ip(context, floatingip_id)
