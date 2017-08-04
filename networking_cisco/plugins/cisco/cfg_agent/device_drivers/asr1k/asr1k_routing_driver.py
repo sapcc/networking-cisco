@@ -1069,8 +1069,8 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
                 confstr = (asr1k_snippets.REMOVE_STATIC_SRC_TRL_NO_VRF_MATCH % (old_fixed_ip, floating_ip, old_vrf_name, old_hsrp_grp, old_vlan))
 
                 if old_fixed_ip != fixed_ip:
-                    LOG.warning("Detected a stale NAT entry in vrf %s floating ip is %s and current fixed ip is %s, attempting to delete", old_vrf_name,floating_ip,old_fixed_ip)
-                    LOG.warning("New vrf will be %s with fixed ip %s",vrf_name, fixed_ip)
+                    LOG.warning("Detected a stale NAT entry in vrf %s floating ip is %s and current fixed ip is %s, attempting to delete. New vrf will be %s with fixed ip %s", old_vrf_name,floating_ip,old_fixed_ip,vrf_name, fixed_ip)
+
 
                     self._edit_running_config(confstr, 'REMOVE_STATIC_SRC_TRL_NO_VRF_MATCH')
             except Exception as e :
