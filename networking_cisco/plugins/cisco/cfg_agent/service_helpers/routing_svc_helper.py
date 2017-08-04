@@ -191,6 +191,15 @@ class CiscoRoutingPluginApi(object):
         return cctxt.call(context, 'update_port_statuses_cfg',
                           port_ids=port_ids, status=status)
 
+    def get_floating_ip(self, context, floatingip_id):
+        """Call the pluging to get a specifiv floating ip.
+        :param context: contains user information
+        :param ip: ip of floating ip
+        """
+        cctxt = self.client.prepare(version='1.1')
+        return cctxt.call(context, 'get_floating_ip',
+                          floatingip_id=floatingip_id)
+
 
 class RoutingServiceHelper(object):
 
@@ -1175,14 +1184,31 @@ class RoutingServiceHelper(object):
             # remove fip from "cache" of fips configured in device
             ri.floating_ips.remove(configured_fip)
 
+        attempts = 2
         for configured_fip in fips_to_add:
-            try:
-                self._floating_ip_added(ri, ex_gw_port,
-                                        configured_fip['floating_ip_address'],
-                                        configured_fip['fixed_ip_address'])
-            except Exception as e:
-                LOG.error("Failed to add floating IP to router %s ,  %s",ri.id,e)
+
+            retries = 0
+            failed = False
+            while retries < attempts:
+                try:
+                    self._floating_ip_added(ri, ex_gw_port,
+                                            configured_fip['floating_ip_address'],
+                                            configured_fip['fixed_ip_address'])
+                    break
+                except Exception as e:
+                    LOG.warning("Exception adding floating IP for router %s , %s", ri.id, e)
+                    LOG.warning("Checking for duplicate entries, and %d attempt(s) to unconfgure them will be made", attempts)
+                    cleared  = self._check_failed_fip(ri, ex_gw_port, configured_fip)
+                    if cleared:
+                        retries += 1
+                    else:
+                        failed = True
+                        break
+
+            if failed:
+                LOG.error("Despite attempts to clear existing entries, failed to add floating IP to router %s ,  %s", ri.id, e)
                 continue
+
             # add fip to "cache" of fips configured in device
             ri.floating_ips.append(configured_fip)
             fip_statuses[configured_fip['id']] = (
@@ -1196,6 +1222,25 @@ class RoutingServiceHelper(object):
             LOG.debug("Sending floatingip_statuses_update: %s", fip_statuses)
             self.plugin_rpc.update_floatingip_statuses(
                 self.context, ri.router_id, fip_statuses)
+
+    def _check_failed_fip(self,ri,ex_gw_port,configured_fip):
+
+        current_fip_state = self.plugin_rpc.get_floating_ip(self.context,configured_fip.get('id'))
+
+        if current_fip_state is None:
+            return False
+
+        driver = self.driver_manager.get_driver(ri.id)
+
+        if current_fip_state.get('floating_ip') == configured_fip.get("floating_ip"):
+
+            # we are been asked to configure something neutron thinks is  consistent
+
+
+            return driver.cleanup_invalid_fip(ri,configured_fip.get("fixed_ip_address"),configured_fip.get("floating_ip_address"))
+
+        return False
+
 
     def _router_added(self, router_id, router):
         """Operations when a router is added.

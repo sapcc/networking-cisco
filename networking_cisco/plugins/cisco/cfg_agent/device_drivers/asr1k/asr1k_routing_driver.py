@@ -15,6 +15,7 @@
 import logging
 import netaddr
 import time
+import re
 
 from oslo_config import cfg
 
@@ -33,6 +34,7 @@ from networking_cisco.plugins.cisco.cfg_agent.device_drivers.csr1kv import (
 from networking_cisco.plugins.cisco.common import cisco_constants
 from networking_cisco.plugins.cisco.extensions import ha
 from networking_cisco.plugins.cisco.extensions import routerrole
+from networking_cisco.plugins.cisco.common.htparser import HTParser
 
 LOG = logging.getLogger(__name__)
 
@@ -1043,3 +1045,37 @@ class ASR1kRoutingDriver(iosxe_driver.IosXeRoutingDriver):
             (fixed_ip, floating_ip, vrf, hsrp_grp, vlan))
         self._edit_running_config(confstr,
                                   'REMOVE_STATIC_SRC_TRL_NO_VRF_MATCH')
+
+    def cleanup_invalid_fip(self,ri,fixed_ip,floating_ip):
+        vrf_name = self._get_vrf_name(ri)
+
+        running_cfg = self.get_configuration()
+        parsed_cfg = HTParser(running_cfg)
+
+        snat_vrf_regex = ("ip nat inside source static"
+                          " (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) "
+                          + floating_ip + " vrf nrouter-(\w{6,6})" +
+                          " redundancy neutron-hsrp-(\d+)-(\d+)")
+
+        for nat_config in parsed_cfg.find_objects(snat_vrf_regex):
+            try:
+                match_obj = re.match(snat_vrf_regex, nat_config.text)
+
+                old_fixed_ip = match_obj.group(1)
+                old_vrf_name = "nrouter-"+ match_obj.group(2)
+                old_hsrp_grp = match_obj.group(3)
+                old_vlan = match_obj.group(4)
+
+                confstr = (asr1k_snippets.REMOVE_STATIC_SRC_TRL_NO_VRF_MATCH % (old_fixed_ip, floating_ip, old_vrf_name, old_hsrp_grp, old_vlan))
+
+                if old_fixed_ip != fixed_ip:
+                    LOG.warning("Detected a stale NAT entry in vrf %s floating ip is %s and current fixed ip is %s, attempting to delete", old_vrf_name,floating_ip,old_fixed_ip)
+                    LOG.warning("New vrf will be %s with fixed ip %s",vrf_name, fixed_ip)
+
+                    self._edit_running_config(confstr, 'REMOVE_STATIC_SRC_TRL_NO_VRF_MATCH')
+            except Exception as e :
+                LOG.exception(e)
+                return False
+
+        return True
+
