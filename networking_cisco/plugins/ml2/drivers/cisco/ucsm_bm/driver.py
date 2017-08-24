@@ -79,7 +79,7 @@ class CiscoUcsmBareMetalDriver(SimpleAgentMechanismDriverBase):
         # 'z' is always larger than a mac address, so if the mac_address
         # coincides with the beginning of a block, it will still yield a position
         # after the block, as it will if the mac_address is behind the beginning of the block
-        pos = bisect.bisect(mac_blocks, (mac_address, 'z')) - 1
+        pos = bisect(mac_blocks, (mac_address, 'z')) - 1
 
         if pos < 0:
             LOG.debug("Mac address out of range for agent")
