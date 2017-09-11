@@ -2,7 +2,8 @@
 import base_action
 from oslo_log import log as logging
 from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k import asr1k_cfg_syncer
-
+from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k.validator import running_config as rc
+from networking_cisco.plugins.cisco.cfg_agent.device_drivers.asr1k.validator import models
 
 LOG = logging.getLogger(__name__)
 
@@ -13,24 +14,28 @@ class Validate(base_action.BaseAction):
 
 
     def execute(self):
+        print("Validate")
 
-        routers = self.routing_service_helper._fetch_router_info(router_ids=[self.router_id])
+        neutron_config = models.NeutronConfig(self.routing_service_helper, mock=False)
 
-        if len(routers)==1:
-            # router = routers[0]
-            # hosting_device = router.get('routerhost:hosting_device')
-            #
-            # temp_res = {"id": hosting_device,
-            #             "hosting_device": router['hosting_device'],
-            #             "router_type": router['router_type']}
-            # driver = self.routing_service_helper.driver_manager.set_driver(temp_res)
-            #
-            #
-            # cfg_syncer = asr1k_cfg_syncer.ConfigSyncer([router], driver, router['hosting_device'],test_mode=True)
-            # cfg_syncer.delete_invalid_cfg()
-            pass
-        else:
-            print("Router {} not found".format(self.router_id))
+        print(neutron_config.get_neutron_config())
 
-
-
+        # routers = self.routing_service_helper._fetch_router_info(router_ids=[self.router_id])
+        #
+        # if len(routers)==1:
+        #     router = routers[0]
+        #     # hosting_device = router.get('routerhost:hosting_device')
+        #
+        #     driver = self.routing_service_helper.driver_manager.set_driver(router)            #
+        #
+        #     running_config = rc.RunningConfig(driver)
+        #
+        #     vrfs = running_config.get_vrfs()
+        #
+        #     print(vrfs)
+        #
+        # else:
+        #     print("Router {} not found".format(self.router_id))
+        #
+        #
+        #
