@@ -188,6 +188,18 @@ class CiscoCfgAgent(manager.Manager):
 
     def after_start(self):
         LOG.info(_LI("Cisco cfg agent started"))
+
+        hds = self.get_assigned_hosting_devices()
+        if hds is None:
+            LOG.warning(
+                _LW("Unable to fetch hosting devices to monitor. "
+                    "Certain hosting devices in DEAD state may not be "
+                    "revived. Restart config agent to trigger new attempts."))
+        else:
+            LOG.info(_LI("To manage hosting devices %s"), hds)
+            self._dev_status.backlog_hosting_devices(hds)
+
+
         if self.routing_service_helper:
             self.routing_service_helper.collect_active()
 
@@ -348,10 +360,17 @@ class CiscoCfgAgent(manager.Manager):
                           "Payload is %(payload)s"), {'error': e,
                                                       'payload': payload})
 
-    def get_assigned_hosting_devices(self):
+    def get_assigned_hosting_devices(self, max_retry_attempts=3):
         context = bc.context.get_admin_context_without_session()
-        res = self.devmgr_rpc.get_hosting_devices_for_agent(context)
-        return res
+        for attempts in range(max_retry_attempts):
+            try:
+                return self.devmgr_rpc.get_hosting_devices_for_agent(context)
+            except Exception:
+                LOG.warning(_LW("Failed attempt to fetch hosting devices to "
+                                "manage. Retrying in %0.2f second."),
+                            REGISTRATION_RETRY_DELAY)
+                time.sleep(REGISTRATION_RETRY_DELAY)
+        return None
 
     def get_hosting_device_configuration(self, context, payload):
         LOG.debug('Processing request to fetching running config')
