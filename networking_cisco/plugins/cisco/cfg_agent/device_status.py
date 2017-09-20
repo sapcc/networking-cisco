@@ -87,7 +87,7 @@ class DeviceStatus(object):
         # Modifying the 'created_at' to a date time object if it is not
         if not isinstance(hosting_device['created_at'], datetime.datetime):
             hosting_device['created_at'] = datetime.datetime.strptime(
-                hosting_device['created_at'], '%Y-%m-%d %H:%M:%S')
+                hosting_device['created_at'], '%Y-%m-%d %H:%M:%S.%f')
         if hd_id not in self.hosting_devices_backlog:
             if 'hd_state' not in hosting_device:
                 hosting_device['hd_state'] = hosting_device['status']
