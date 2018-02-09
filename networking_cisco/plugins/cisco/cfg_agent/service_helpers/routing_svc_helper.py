@@ -25,6 +25,7 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import excutils
 from oslo_utils import importutils
+from oslo_utils import uuidutils
 import six
 
 from neutron.common import exceptions as n_exc
@@ -482,11 +483,11 @@ class RoutingServiceHelper(object):
                                 'required time, decreasing chunk size to: %s'),
                             self.sync_routers_chunk_size)
             else:
-                LOG.warning(_LW('Server failed to return info for routers in '
-                                'required time even with min chunk size: %s. '
+                LOG.error('Server failed to return info for routers {} in '
+                                'required time even with min chunk size: {}. '
                                 'It might be under very high load or just '
-                                'inoperable'),
-                            self.sync_routers_chunk_size)
+                                'inoperable'.format(
+                            router_ids, self.sync_routers_chunk_size))
             raise
         except oslo_messaging.MessagingException:
             LOG.exception(_LE("RPC Error in fetching routers from plugin"))
@@ -778,10 +779,14 @@ class RoutingServiceHelper(object):
             for router_id in deleted_routerids_list:
                 LOG.debug("Processing deleted router:%s", router_id)
                 self._router_removed(router_id)
-        except Exception:
-            LOG.exception(_LE("Exception in processing routers on device:%s"),
-                          device_id)
-            self.sync_devices.add(device_id)
+        except Exception as e:
+            uuid = uuidutils.generate_uuid()
+            LOG.error("Potential sync loop detected : Search for {} to see details".format(uuid))
+            LOG.exception("Exception {} in processing routers on device {} :{}".format(uuid, device_id))
+            LOG.exception("Exception uuid {} processsing routers {} or deleting routers {} : {}".format(uuid, routers, removed_routers, e))
+
+            # Surpress sync of device in case of error
+            # self.sync_devices.add(device_id)
 
     def _send_update_port_statuses(self, port_ids, status):
         """Sends update notifications to set the operational status of the
