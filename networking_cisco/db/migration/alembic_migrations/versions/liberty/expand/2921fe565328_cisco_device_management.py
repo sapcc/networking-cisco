@@ -71,11 +71,13 @@ def upgrade():
         sa.Column('tenant_bound', sa.String(length=36), nullable=True),
         sa.ForeignKeyConstraint(['template_id'],
                                 ['cisco_hosting_device_templates.id']),
-        sa.ForeignKeyConstraint(['hosting_device_id'],
-                                ['cisco_hosting_devices.id']),
+
         sa.PrimaryKeyConstraint('logical_resource_id')
     )
     if migration.schema_has_table('cisco_hosting_devices'):
+        sa.ForeignKeyConstraint(['hosting_device_id'],
+                                ['cisco_hosting_devices.id']),
+
         op.add_column('cisco_hosting_devices',
                       sa.Column('template_id', sa.String(length=36),
                                 nullable=False))
