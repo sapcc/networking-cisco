@@ -17,10 +17,9 @@ from neutron.plugins.ml2.drivers.mech_agent import SimpleAgentMechanismDriverBas
 import constants
 
 from bisect import bisect
-from neutron.extensions import portbindings
-from neutron._i18n import _LE, _LI, _LW
+from neutron_lib.api.definitions import portbindings
 from networking_cisco import backwards_compatibility as bc
-from neutron.plugins.common import constants as p_const
+from neutron_lib import constants as p_const
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -52,8 +51,8 @@ class CiscoUcsmBareMetalDriver(SimpleAgentMechanismDriverBase):
         agents = context._plugin.get_agents(context._plugin_context,
                                        filters={'agent_type': [self.agent_type]})
         if not agents:
-            LOG.warning(_LW("Port %(pid)s on network %(network)s not bound, "
-                            "no agent registered of tpy %(host)s"),
+            LOG.warning("Port %(pid)s on network %(network)s not bound, "
+                            "no agent registered of tpy %(host)s",
                         {'pid': context.current['id'],
                          'network': context.network.current['id'],
                          'agent_type': self.agent_type})
@@ -66,8 +65,8 @@ class CiscoUcsmBareMetalDriver(SimpleAgentMechanismDriverBase):
                         LOG.debug("Bound using segment: %s", segment)
                         return
             else:
-                LOG.warning(_LW("Refusing to bind port %(pid)s to dead agent: "
-                                "%(agent)s"),
+                LOG.warning("Refusing to bind port %(pid)s to dead agent: "
+                                "%(agent)s",
                             {'pid': context.current['id'], 'agent': agent})
 
     def try_to_bind_segment_for_agent(self, context, segment, agent):

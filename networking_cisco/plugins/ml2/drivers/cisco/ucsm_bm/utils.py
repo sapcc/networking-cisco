@@ -16,23 +16,20 @@
 Common functionalities shared between different UCS modules.
 """
 
-from UcsSdk import FilterFilter, WcardFilter
-
-
-def create_dn_in_filter(filter_class, filter_value):
+def create_dn_in_filter(ucsmsdk, filter_class, filter_value):
     """ Creates filter object for given class name, and DN values."""
-    in_filter = FilterFilter()
-    in_filter.AddChild(create_dn_wcard_filter(filter_class, filter_value))
+    in_filter = ucsmsdk.FilterFilter()
+    in_filter.AddChild(create_dn_wcard_filter(ucsmsdk, filter_class, filter_value))
     return in_filter
 
 
-def create_dn_wcard_filter(filter_class, filter_value):
+def create_dn_wcard_filter(ucsmsdk, filter_class, filter_value):
     """ Creates wild card filter object for given class name, and values.
         :param filter_class: class name
-	:param filter_value: filter property value
-	:return WcardFilter: WcardFilter object
+	    :param filter_value: filter property value
+	    :return WcardFilter: WcardFilter object
         """
-    wcard_filter = WcardFilter()
+    wcard_filter = ucsmsdk.WcardFilter()
     wcard_filter.Class = filter_class
     wcard_filter.Property = "dn"
     wcard_filter.Value = filter_value
