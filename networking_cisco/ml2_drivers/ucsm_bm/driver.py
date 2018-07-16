@@ -18,7 +18,6 @@ import constants
 
 from bisect import bisect
 from neutron_lib.api.definitions import portbindings
-from networking_cisco import backwards_compatibility as bc
 from neutron_lib import constants as p_const
 import logging
 
