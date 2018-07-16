@@ -177,6 +177,9 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
     def ensure_port_admin_state(self, device, admin_state_up):
         pass
 
+    def get_agent_api(self, **kwargs):
+        pass
+
     def set_mapping(self, port):
         port_id = port['id']
         mac = port['mac_address']
