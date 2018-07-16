@@ -33,7 +33,6 @@ from oslo_config import cfg
 from oslo_service import service
 import oslo_messaging
 
-from neutron._i18n import _LE, _LI, _LW
 from neutron.common import config as common_config
 try:
     from neutron.common import profiler
@@ -42,7 +41,7 @@ except ImportError:
 from neutron.common import topics
 from neutron.plugins.ml2.drivers.agent import _agent_manager_base as amb
 from neutron.plugins.ml2.drivers.agent import _common_agent as ca
-from networking_cisco.plugins.ml2.drivers.cisco.ucsm import exceptions as cexc
+from networking_cisco.ml2_drivers.ucsm import exceptions as cexc
 
 import constants
 from config import UcsmBmConfig
@@ -305,8 +304,8 @@ class CiscoUcsmBareMetalManager(amb.CommonAgentManagerBase):
         """Connects to a UCS Manager."""
         username, password = self.ucsm_conf.get_credentials_for_ucsm_ip(ucsm_ip)
         if not username:
-            LOG.error(_LE('UCS Manager network driver failed to get login '
-                          'credentials for UCSM %s'), ucsm_ip)
+            LOG.error('UCS Manager network driver failed to get login '
+                          'credentials for UCSM %s', ucsm_ip)
             return None
 
         handle = self.ucsmsdk.UcsHandle()
@@ -403,6 +402,6 @@ def main():
                       quitting_rpc_timeout,
                       constants.AGENT_TYPE,
                       constants.AGENT_BINARY)
-    LOG.info(_LI("Agent initialized successfully, now running... "))
+    LOG.info("Agent initialized successfully, now running... ")
     launcher = service.launch(cfg.CONF, agent)
     launcher.wait()

@@ -13,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from ..ucsm.constants import *
+from networking_cisco.ml2_drivers.ucsm.constants import *  # qa
 
 AGENT_BINARY = 'neutron-ucsm-bm-ml2-agent'
 AGENT_TYPE = 'Cisco UCS Bare Metal L2'
