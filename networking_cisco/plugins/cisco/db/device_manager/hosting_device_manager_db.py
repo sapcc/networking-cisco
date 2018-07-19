@@ -179,7 +179,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         keystone = client.Client(session=cls._keystone_auth_session())
         try:
             tenant = keystone.projects.find(
-                name=cfg.CONF.general.l3_aproject_domain_iddmin_tenant,
+                name=cfg.CONF.general.l3_admin_tenant,
                 domain_id = (cfg.CONF.keystone_authtoken.project_domain_id
                              or 'default'))
         except k_exceptions.NotFound:
