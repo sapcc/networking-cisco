@@ -66,7 +66,7 @@ class L3RouterCfgRpcCallback(object):
         except AttributeError:
             routers = []
         LOG.debug('Routers returned to Cisco cfg agent@%(agt)s:\n %(routers)s',
-                  {'agt': host, 'routers': [r.id for r in routers]})
+                  {'agt': host, 'routers': [r['id'] for r in routers]})
         return routers
 
     # version 1.2 API
