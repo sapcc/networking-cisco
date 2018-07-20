@@ -14,7 +14,7 @@
 
 from oslo_log import log as logging
 import oslo_messaging
-from oslo_serialization import jsonutils
+from oslo_utils import timeutils
 import six
 
 from neutron.db import api as db_api
@@ -44,6 +44,7 @@ class L3RouterCfgRpcCallback(object):
                                                       hosting_device_ids)
 
     # version 1.0 API
+    @timeutils.time_it(LOG)
     @db_api.retry_db_errors
     def cfg_sync_routers(self, context, host, router_ids=None,
                          hosting_device_ids=None):
@@ -65,7 +66,7 @@ class L3RouterCfgRpcCallback(object):
         except AttributeError:
             routers = []
         LOG.debug('Routers returned to Cisco cfg agent@%(agt)s:\n %(routers)s',
-                  {'agt': host, 'routers': jsonutils.dumps(routers, indent=5)})
+                  {'agt': host, 'routers': [r.id for r in routers]})
         return routers
 
     # version 1.2 API
