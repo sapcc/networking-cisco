@@ -442,7 +442,7 @@ CLEAR_DYN_NAT_TRANS = """
 REMOVE_DYN_SRC_TRL_POOL = """
 <config>
         <cli-config-data>
-            <cmd>no ip nat inside source list %s pool %s vrf %s overload</cmd>
+            <cmd>no ip nat inside source list %s pool %s vrf %s overload forced</cmd>
         </cli-config-data>
 </config>
 """
