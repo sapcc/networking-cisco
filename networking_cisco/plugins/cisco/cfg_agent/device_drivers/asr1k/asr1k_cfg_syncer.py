@@ -865,7 +865,7 @@ class ConfigSyncer(object,alerts.AlertMixin):
 
         if not self.test_mode:
             for nat_cfg in delete_nat_list:
-                del_cmd = XML_CMD_TAG % ("no %s" % (nat_cfg))
+                del_cmd = XML_CMD_TAG % ("no %s forced" % (nat_cfg))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info(_LI("Delete NAT overload: %(del_cmd)s") %
                          {'del_cmd': del_cmd})
@@ -901,7 +901,10 @@ class ConfigSyncer(object,alerts.AlertMixin):
                                        'del_cmd': del_cmd})
                         else:
                             if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
-                                conn.edit_config(target='running', config=wipestr)
+                                try:
+                                    conn.edit_config(target='running', config=wipestr)
+                                except RPCError as e:
+                                    LOG.exception(e)
                             else:
                                 self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT overload (wipe) clean attempt", wipestr)
 
