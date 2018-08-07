@@ -533,14 +533,17 @@ class ConfigSyncer(object,alerts.AlertMixin):
 
         if not self.test_mode:
             for pool_cfg in delete_pool_list:
-                del_cmd = XML_CMD_TAG % ("no %s" % (pool_cfg))
+                del_cmd = XML_CMD_TAG % ("no %s forced" % (pool_cfg))
                 confstr = XML_FREEFORM_SNIPPET % (del_cmd)
                 LOG.info(_LI("Delete pool: %s"), del_cmd)
 
                 self.prometheus.sync_delete_nat_pool.labels([self.hd_id]).inc()
 
                 if cfg.CONF.cleaning.cleaning_mode == CLEANING_MODE_DELETE:
-                    conn.edit_config(target='running', config=confstr)
+                    try:
+                        conn.edit_config(target='running', config=confstr)
+                    except RPCError as e:
+                        LOG.exception(e)
                 else:
                     self.emit_alert(alerts.ALERT_CRITICAL, "Sync NAT Pool clean attempt", confstr)
 
