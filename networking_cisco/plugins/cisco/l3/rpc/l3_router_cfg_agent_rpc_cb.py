@@ -16,6 +16,7 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import timeutils
 import six
+from osprofiler import profiler
 
 from neutron.db import api as db_api
 
@@ -45,6 +46,7 @@ class L3RouterCfgRpcCallback(object):
 
     # version 1.0 API
     @timeutils.time_it(LOG)
+    @profiler.trace("cfg_sync_routers", hide_args=False)
     @db_api.retry_db_errors
     def cfg_sync_routers(self, context, host, router_ids=None,
                          hosting_device_ids=None):
