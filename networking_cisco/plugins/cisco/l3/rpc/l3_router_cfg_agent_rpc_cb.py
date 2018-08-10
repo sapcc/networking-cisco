@@ -17,7 +17,7 @@ import oslo_messaging
 from oslo_utils import timeutils
 import six
 from osprofiler import profiler
-
+import logging as pylog
 from neutron.db import api as db_api
 
 from networking_cisco import backwards_compatibility as bc
@@ -46,7 +46,6 @@ class L3RouterCfgRpcCallback(object):
 
     # version 1.0 API
     @timeutils.time_it(LOG)
-    @profiler.trace("cfg_sync_routers", hide_args=False)
     @db_api.retry_db_errors
     def cfg_sync_routers(self, context, host, router_ids=None,
                          hosting_device_ids=None):
@@ -60,6 +59,9 @@ class L3RouterCfgRpcCallback(object):
         :returns: a list of routers with their hosting devices, interfaces and
             floating_ips
         """
+        logger = pylog.getLogger('sqlalchemy.engine')
+        logger.setLevel(logging.DEBUG)
+
         adm_context = bc.context.get_admin_context()
         try:
             routers = (
@@ -69,6 +71,9 @@ class L3RouterCfgRpcCallback(object):
             routers = []
         LOG.debug('Routers returned to Cisco cfg agent@%(agt)s:\n %(routers)s',
                   {'agt': host, 'routers': [r['id'] for r in routers]})
+
+        logger.setLevel(logging.WARNING)
+
         return routers
 
     # version 1.2 API
