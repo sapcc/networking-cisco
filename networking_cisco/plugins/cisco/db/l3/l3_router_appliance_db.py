@@ -38,6 +38,7 @@ from neutron.db import extraroute_db
 from neutron.db import external_net_db
 from neutron.db import l3_db
 from neutron_lib import exceptions as n_exc
+from neutron_lib.api.definitions import portbindings
 
 from networking_cisco._i18n import _
 from networking_cisco import backwards_compatibility as bc
@@ -276,6 +277,28 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
                 ni['notifier'].routers_updated(context, ni['routers'])
         return router_updated
 
+    def _ensure_host_set_on_port(self, context, routers):
+        for router in routers:
+            host = router['routerhost:hosting_device']
+            port = self._core_plugin.get_port(context, router.get('gw_port_id'))
+            not_bound = port and port.get(portbindings.VIF_TYPE) in (
+                portbindings.VIF_TYPE_BINDING_FAILED,
+                portbindings.VIF_TYPE_UNBOUND)
+            if (port and host is not None and (
+                 port.get(portbindings.HOST_ID) != host or not_bound)):
+                try:
+                    self._core_plugin.update_port(
+                        context,
+                        port['id'],
+                        {'port': {portbindings.HOST_ID: host}})
+                    # updating port's host to pass actual info to l3 agent
+                    port[portbindings.HOST_ID] = host
+                except n_exc.PortNotFound:
+                    LOG.debug("Port %(port)s not found while updating "
+                              "agent binding for router %(router)s.",
+                              {"port": port['id'], "router": router.get('id')})
+
+
     def _update_router_no_notify(self, context, router_id, router):
         r = router['router']
         old_router_db = self._get_router(context, router_id)
@@ -319,6 +342,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
                                             req_ha_settings, old_router_db,
                                             gateway_changed)
         routers = [copy.deepcopy(router_updated)]
+        self._ensure_host_set_on_port(e_context, routers)
         driver = self._get_router_type_driver(context,
                                               r_hd_binding_db.router_type_id)
         if driver:
