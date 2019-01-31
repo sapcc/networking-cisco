@@ -29,8 +29,8 @@ from alembic import op
 
 def upgrade():
 
-
-    op.drop_constraint('cisco_router_ha_groups_pkey', 'cisco_router_ha_groups', type_='primary')
-    op.create_primary_key(
-        'cisco_router_ha_groups_pkey','cisco_router_ha_groups', ['ha_port_id', 'subnet_id'])
+    pass
+    #op.drop_constraint('cisco_router_ha_groups_pkey', 'cisco_router_ha_groups', type_='primary')
+    #op.create_primary_key(
+    #    'cisco_router_ha_groups_pkey','cisco_router_ha_groups', ['ha_port_id', 'subnet_id'])
 
